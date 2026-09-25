@@ -73,3 +73,126 @@ model PositionPermission {
   @@unique([position_id, permission_id])
   @@map("position_permissions")
 }
+
+// ============================================
+// Family Tree Schema (SRS Fase 1)
+// ============================================
+
+enum GenderType {
+  male
+  female
+  unknown
+
+  @@map("gender_type")
+}
+
+enum ParentRelationType {
+  biological
+  adopted
+  foster
+  guardian
+
+  @@map("parent_relation_type")
+}
+
+enum PartnershipStatus {
+  married
+  partner
+  separated
+  divorced
+  widowed
+  annulled
+
+  @@map("partnership_status")
+}
+
+model FamilyTree {
+  id                            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                          String   @db.VarChar(150)
+  description                   String?  @db.Text
+  root_person_id                String?  @db.Uuid
+  allow_concurrent_partnerships Boolean  @default(true)
+  created_at                    DateTime @default(now()) @db.Timestamptz
+  updated_at                    DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  // Relations
+  root_person  Person?       @relation("RootPerson", fields: [root_person_id], references: [id], onDelete: SetNull)
+  persons      Person[]      @relation("TreePersons")
+  partnerships Partnership[] @relation("TreePartnerships")
+  parent_child ParentChild[] @relation("TreeParentChild")
+
+  @@map("family_trees")
+}
+
+model Person {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tree_id    String     @db.Uuid
+  first_name String     @db.VarChar(100)
+  last_name  String?    @db.VarChar(100)
+  nickname   String?    @db.VarChar(100)
+  gender     GenderType @default(unknown)
+  birth_date DateTime?  @db.Date
+  death_date DateTime?  @db.Date
+  is_living  Boolean    @default(true)
+  photo_url  String?    @db.Text
+  notes      String?    @db.Text
+  created_at DateTime   @default(now()) @db.Timestamptz
+  updated_at DateTime   @default(now()) @updatedAt @db.Timestamptz
+
+  // Relations
+  tree               FamilyTree    @relation("TreePersons", fields: [tree_id], references: [id], onDelete: Cascade)
+  as_root            FamilyTree[]  @relation("RootPerson")
+  partnerships_as_a  Partnership[] @relation("PersonA")
+  partnerships_as_b  Partnership[] @relation("PersonB")
+  as_parent          ParentChild[] @relation("Parent")
+  as_child           ParentChild[] @relation("Child")
+
+  @@index([tree_id], map: "idx_persons_tree")
+  @@map("persons")
+}
+
+model Partnership {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tree_id     String            @db.Uuid
+  person_a_id String            @db.Uuid
+  person_b_id String            @db.Uuid
+  status      PartnershipStatus @default(married)
+  start_date  DateTime?         @db.Date
+  end_date    DateTime?         @db.Date
+  notes       String?           @db.Text
+  created_at  DateTime          @default(now()) @db.Timestamptz
+
+  // Relations
+  tree         FamilyTree    @relation("TreePartnerships", fields: [tree_id], references: [id], onDelete: Cascade)
+  person_a     Person        @relation("PersonA", fields: [person_a_id], references: [id], onDelete: Cascade)
+  person_b     Person        @relation("PersonB", fields: [person_b_id], references: [id], onDelete: Cascade)
+  parent_child ParentChild[] @relation("PartnershipOrigin")
+
+  @@index([person_a_id], map: "idx_partner_a")
+  @@index([person_b_id], map: "idx_partner_b")
+  @@map("partnerships")
+}
+
+model ParentChild {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tree_id        String             @db.Uuid
+  parent_id      String             @db.Uuid
+  child_id       String             @db.Uuid
+  relation_type  ParentRelationType @default(biological)
+  partnership_id String?            @db.Uuid
+  start_date     DateTime?          @db.Date
+  end_date       DateTime?          @db.Date
+  created_at     DateTime           @default(now()) @db.Timestamptz
+
+  // Relations
+  tree        FamilyTree   @relation("TreeParentChild", fields: [tree_id], references: [id], onDelete: Cascade)
+  parent      Person       @relation("Parent", fields: [parent_id], references: [id], onDelete: Cascade)
+  child       Person       @relation("Child", fields: [child_id], references: [id], onDelete: Cascade)
+  partnership Partnership? @relation("PartnershipOrigin", fields: [partnership_id], references: [id], onDelete: SetNull)
+
+  @@unique([parent_id, child_id], map: "uq_parent_child")
+  @@index([parent_id], map: "idx_pc_parent")
+  @@index([child_id], map: "idx_pc_child")
+  @@index([partnership_id], map: "idx_pc_partnership")
+  @@map("parent_child")
+}
