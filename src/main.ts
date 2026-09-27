@@ -58,6 +58,9 @@ async function bootstrap() {
       .addTag('Authentication', 'Authentication endpoints')
       .addTag('Users', 'User management endpoints')
       .addTag('Health', 'Health check endpoints')
+      .addTag('Trees', 'Manajemen Pohon Silsilah Keluarga (FR-01 s.d. FR-03)')
+      .addTag('Persons', 'Manajemen Individu / Person dalam Tree (FR-04 s.d. FR-07)')
+      .addTag('Relationships', 'Manajemen Relasi Parent-Child & Partnerships (FR-08 s.d. FR-11)')
       .build();
 
     const document = SwaggerModule.createDocument(app, config);

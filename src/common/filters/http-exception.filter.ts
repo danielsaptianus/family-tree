@@ -20,6 +20,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
+    let code: string | undefined = undefined;
+    let details: any = undefined;
     let errors: any = null;
 
     if (exception instanceof HttpException) {
@@ -29,6 +31,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
         message = (exceptionResponse as any).message || exception.message;
         errors = (exceptionResponse as any).errors || null;
+        code = (exceptionResponse as any).code;
+        details = (exceptionResponse as any).details;
       } else {
         message = exceptionResponse as string;
       }
@@ -42,12 +46,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
       exception instanceof Error ? exception.stack : undefined,
     );
 
-    const errorResponse: ApiResponseDto<null> = {
+    const errorResponse: Record<string, any> = {
       statusCode: status,
       message,
       data: null,
-      errors,
     };
+
+    if (code) errorResponse.code = code;
+    if (details) errorResponse.details = details;
+    if (errors) errorResponse.errors = errors;
 
     response.status(status).json(errorResponse);
   }

@@ -19,6 +19,9 @@ import { PrismaModule } from './common/prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { TreesModule } from './modules/trees/trees.module';
+import { PersonsModule } from './modules/persons/persons.module';
+import { RelationshipsModule } from './modules/relationships/relationships.module';
 
 @Module({
   imports: [
@@ -36,6 +39,9 @@ import { AuthModule } from './modules/auth/auth.module';
     AuthModule,
     UsersModule,
     HealthModule,
+    TreesModule,
+    PersonsModule,
+    RelationshipsModule,
   ],
   providers: [
     // Global guards
