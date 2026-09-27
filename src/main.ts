@@ -53,14 +53,14 @@ async function bootstrap() {
   if (swaggerEnabled) {
     const config = new DocumentBuilder()
       .setTitle('Family Tree API')
-      .setDescription('Family Tree Backend API Documentation')
+      .setDescription('Family Tree Backend')
       .setVersion('1.0')
       .addTag('Authentication', 'Authentication endpoints')
       .addTag('Users', 'User management endpoints')
-      .addTag('Health', 'Health check endpoints')
       .addTag('Trees', 'Manajemen Pohon Silsilah Keluarga (FR-01 s.d. FR-03)')
       .addTag('Persons', 'Manajemen Individu / Person dalam Tree (FR-04 s.d. FR-07)')
       .addTag('Relationships', 'Manajemen Relasi Parent-Child & Partnerships (FR-08 s.d. FR-11)')
+      .addTag('Health', 'Health check endpoints')
       .build();
 
     const document = SwaggerModule.createDocument(app, config);

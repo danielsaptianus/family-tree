@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 import { PaginationDto } from '@common/dto/pagination.dto';
 
 export class UserQueryDto extends PaginationDto {
-  @ApiPropertyOptional({ example: 'bhagas' })
+  @ApiPropertyOptional({ example: 'daniel' })
   @IsOptional()
   @IsString()
   search?: string;

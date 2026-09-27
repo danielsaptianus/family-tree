@@ -4,10 +4,10 @@ export class TreeEntity {
   @ApiProperty({ example: '7c1e8400-e29b-41d4-a716-446655440000' })
   id: string;
 
-  @ApiProperty({ example: 'Keluarga Besar Wiryo' })
+  @ApiProperty({ example: 'Silsilah Keluarga Saptianus' })
   name: string;
 
-  @ApiPropertyOptional({ example: 'Catatan silsilah keturunan kakek Wiryo' })
+  @ApiPropertyOptional({ example: 'Catatan silsilah keturunan keluarga Saptianus' })
   description?: string | null;
 
   @ApiPropertyOptional({ example: '550e8400-e29b-41d4-a716-446655440000' })

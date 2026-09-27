@@ -8,31 +8,31 @@ export class PersonEntity {
   @ApiProperty({ example: '7c1e8400-e29b-41d4-a716-446655440000' })
   treeId: string;
 
-  @ApiProperty({ example: 'Soedarmo' })
+  @ApiProperty({ example: 'Daniel' })
   firstName: string;
 
-  @ApiPropertyOptional({ example: 'Wiryo' })
+  @ApiPropertyOptional({ example: 'Saptianus' })
   lastName?: string | null;
 
-  @ApiPropertyOptional({ example: 'Mbah Darmo' })
+  @ApiPropertyOptional({ example: 'Daniel' })
   nickname?: string | null;
 
   @ApiProperty({ enum: GenderType, example: GenderType.male })
   gender: GenderType;
 
-  @ApiPropertyOptional({ example: '1940-03-12' })
+  @ApiPropertyOptional({ example: '1995-08-17' })
   birthDate?: Date | null;
 
-  @ApiPropertyOptional({ example: '2010-07-01' })
+  @ApiPropertyOptional({ example: null })
   deathDate?: Date | null;
 
-  @ApiProperty({ example: false })
+  @ApiProperty({ example: true })
   isLiving: boolean;
 
-  @ApiPropertyOptional({ example: 'https://example.com/photos/darmo.jpg' })
+  @ApiPropertyOptional({ example: 'https://example.com/photos/daniel.jpg' })
   photoUrl?: string | null;
 
-  @ApiPropertyOptional({ example: 'Catatan tambahan' })
+  @ApiPropertyOptional({ example: 'Anggota keluarga Saptianus' })
   notes?: string | null;
 
   @ApiProperty()

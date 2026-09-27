@@ -2,13 +2,13 @@ import { IsString, IsNotEmpty, MaxLength, IsOptional, IsUUID, IsBoolean } from '
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateTreeDto {
-  @ApiProperty({ example: 'Keluarga Besar Wiryo', description: 'Nama pohon silsilah keluarga' })
+  @ApiProperty({ example: 'Silsilah Keluarga Saptianus', description: 'Nama pohon silsilah keluarga' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
   name: string;
 
-  @ApiPropertyOptional({ example: 'Catatan silsilah keturunan kakek Wiryo', description: 'Deskripsi silsilah' })
+  @ApiPropertyOptional({ example: 'Catatan silsilah keturunan keluarga Saptianus', description: 'Deskripsi silsilah' })
   @IsString()
   @IsOptional()
   description?: string;
