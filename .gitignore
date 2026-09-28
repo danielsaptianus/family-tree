@@ -36,4 +36,5 @@ Thumbs.db
 coverage/
 *.lcov
 
-# Prisma generated artifacts (node_modules/@prisma/client is ignored by node_modules)
+# Scratch scripts
+scratch/

@@ -37,6 +37,18 @@ export class UserEntity implements Partial<PrismaUser> {
   updated_at: Date;
 
   @ApiPropertyOptional()
+  tree_id?: string | null;
+
+  @ApiPropertyOptional()
+  person_id?: string | null;
+
+  @ApiPropertyOptional()
+  tree?: any;
+
+  @ApiPropertyOptional()
+  person?: any;
+
+  @ApiPropertyOptional()
   deleted_at: Date | null;
 
   constructor(partial: Partial<UserEntity>) {

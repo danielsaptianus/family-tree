@@ -24,4 +24,28 @@ export const PERMISSIONS = {
     UPDATE: 'UPDATE_PERMISSION',
     DELETE: 'DELETE_PERMISSION',
   },
+
+  // Tree Management
+  TREE: {
+    VIEW: 'VIEW_TREE',
+    ADD: 'ADD_TREE',
+    UPDATE: 'UPDATE_TREE',
+    DELETE: 'DELETE_TREE',
+  },
+
+  // Person Management
+  PERSON: {
+    VIEW: 'VIEW_PERSON',
+    ADD: 'ADD_PERSON',
+    UPDATE: 'UPDATE_PERSON',
+    DELETE: 'DELETE_PERSON',
+  },
+
+  // Relationship Management
+  RELATIONSHIP: {
+    VIEW: 'VIEW_RELATIONSHIP',
+    ADD: 'ADD_RELATIONSHIP',
+    UPDATE: 'UPDATE_RELATIONSHIP',
+    DELETE: 'DELETE_RELATIONSHIP',
+  },
 } as const;

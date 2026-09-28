@@ -13,10 +13,10 @@ export const seedUsers = async (
 
   const adminUser = await prisma.user.create({
     data: {
-      email: 'admin@kulidigital.com',
+      email: 'admin@gmail.com',
       password: hashedPassword,
-      first_name: 'Admin',
-      last_name: 'Kuli Digital',
+      first_name: 'Daniel',
+      last_name: 'Saptianus (Admin)',
       position_id: adminPositionId,
       is_active: true,
     },
@@ -24,10 +24,10 @@ export const seedUsers = async (
 
   const memberUser = await prisma.user.create({
     data: {
-      email: 'member@kulidigital.com',
+      email: 'daniel@gmail.com',
       password: hashedPassword,
-      first_name: 'Member',
-      last_name: 'User',
+      first_name: 'Daniel',
+      last_name: 'Saptianus',
       position_id: memberPositionId,
       is_active: true,
     },

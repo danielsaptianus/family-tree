@@ -27,6 +27,23 @@ export const seedPermissions = async (
     { name: 'ADD_PERMISSION', resource: 'PERMISSION', action: 'ADD', description: 'Create new permission' },
     { name: 'UPDATE_PERMISSION', resource: 'PERMISSION', action: 'UPDATE', description: 'Update permission information' },
     { name: 'DELETE_PERMISSION', resource: 'PERMISSION', action: 'DELETE', description: 'Delete permission' },
+    // Tree Management
+    { name: 'VIEW_TREE', resource: 'TREE', action: 'VIEW', description: 'View family tree' },
+    { name: 'ADD_TREE', resource: 'TREE', action: 'ADD', description: 'Create family tree' },
+    { name: 'UPDATE_TREE', resource: 'TREE', action: 'UPDATE', description: 'Update family tree' },
+    { name: 'DELETE_TREE', resource: 'TREE', action: 'DELETE', description: 'Delete family tree' },
+
+    // Person Management
+    { name: 'VIEW_PERSON', resource: 'PERSON', action: 'VIEW', description: 'View person profile' },
+    { name: 'ADD_PERSON', resource: 'PERSON', action: 'ADD', description: 'Create person profile' },
+    { name: 'UPDATE_PERSON', resource: 'PERSON', action: 'UPDATE', description: 'Update person profile' },
+    { name: 'DELETE_PERSON', resource: 'PERSON', action: 'DELETE', description: 'Delete person profile' },
+
+    // Relationship Management
+    { name: 'VIEW_RELATIONSHIP', resource: 'RELATIONSHIP', action: 'VIEW', description: 'View relationship' },
+    { name: 'ADD_RELATIONSHIP', resource: 'RELATIONSHIP', action: 'ADD', description: 'Create relationship' },
+    { name: 'UPDATE_RELATIONSHIP', resource: 'RELATIONSHIP', action: 'UPDATE', description: 'Update relationship' },
+    { name: 'DELETE_RELATIONSHIP', resource: 'RELATIONSHIP', action: 'DELETE', description: 'Delete relationship' },
   ];
 
   const permissions = await Promise.all(
@@ -42,7 +59,7 @@ export const seedPermissions = async (
   // ============================================
   console.log('🔗 Assigning permissions to positions...');
 
-  // Admin gets all permissions
+  // Admin gets all permissions (including ADD_USER, UPDATE_USER, DELETE_USER, etc.)
   const adminPermissions = permissions.map((permission) => ({
     position_id: adminPositionId,
     permission_id: permission.id,
@@ -52,14 +69,18 @@ export const seedPermissions = async (
     data: adminPermissions,
   });
 
-  // Member gets only VIEW_USER permission
-  const viewUserPermission = permissions.find((p) => p.name === 'VIEW_USER');
-  if (viewUserPermission) {
-    await prisma.positionPermission.create({
-      data: {
-        position_id: memberPositionId,
-        permission_id: viewUserPermission.id,
-      },
+  // Member (USER) gets view permissions
+  const userAllowedPermissions = ['VIEW_USER', 'VIEW_TREE', 'VIEW_PERSON', 'VIEW_RELATIONSHIP'];
+  const memberPermissions = permissions
+    .filter((p) => userAllowedPermissions.includes(p.name))
+    .map((p) => ({
+      position_id: memberPositionId,
+      permission_id: p.id,
+    }));
+
+  if (memberPermissions.length > 0) {
+    await prisma.positionPermission.createMany({
+      data: memberPermissions,
     });
   }
 

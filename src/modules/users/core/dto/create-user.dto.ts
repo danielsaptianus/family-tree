@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsInt, IsBoolean, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsInt, IsBoolean, IsOptional, IsUUID } from 'class-validator';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'daniel@gmail.com' })
@@ -32,4 +32,14 @@ export class CreateUserDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean = true;
+
+  @ApiPropertyOptional({ example: '7c1e8400-e29b-41d4-a716-446655440000', description: 'ID pohon silsilah keluarga user' })
+  @IsUUID('4')
+  @IsOptional()
+  tree_id?: string;
+
+  @ApiPropertyOptional({ example: 'a1b28400-e29b-41d4-a716-446655440000', description: 'ID person diri user di dalam silsilah' })
+  @IsUUID('4')
+  @IsOptional()
+  person_id?: string;
 }

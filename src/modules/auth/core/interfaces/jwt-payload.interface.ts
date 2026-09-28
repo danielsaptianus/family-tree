@@ -4,4 +4,6 @@ export interface JwtPayload {
   positionId: number;
   positionName: string;
   permissions: string[];
+  treeId?: string | null;
+  personId?: string | null;
 }

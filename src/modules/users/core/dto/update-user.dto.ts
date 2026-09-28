@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsString, MinLength, IsBoolean, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsBoolean, IsOptional, IsUUID } from 'class-validator';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({ example: 'daniel@gmail.com' })
@@ -27,4 +27,14 @@ export class UpdateUserDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  @ApiPropertyOptional({ example: '7c1e8400-e29b-41d4-a716-446655440000', description: 'ID pohon silsilah keluarga user' })
+  @IsUUID('4')
+  @IsOptional()
+  tree_id?: string;
+
+  @ApiPropertyOptional({ example: 'a1b28400-e29b-41d4-a716-446655440000', description: 'ID person diri user di dalam silsilah' })
+  @IsUUID('4')
+  @IsOptional()
+  person_id?: string;
 }

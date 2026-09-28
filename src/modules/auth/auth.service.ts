@@ -66,6 +66,8 @@ export class AuthService {
       positionId: user.position.id,
       positionName: user.position.name,
       permissions,
+      treeId: user.tree_id,
+      personId: user.person_id,
     };
 
     const access_token = this.jwtService.sign(payload);
@@ -82,6 +84,8 @@ export class AuthService {
           name: user.position.name,
         },
         permissions,
+        tree_id: user.tree_id,
+        person_id: user.person_id,
       },
     };
   }

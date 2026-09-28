@@ -25,6 +25,12 @@ model User {
   position_id Int
   position    Position @relation(fields: [position_id], references: [id])
 
+  // Family Tree Mapping
+  tree_id     String?     @db.Uuid
+  person_id   String?     @db.Uuid
+  tree        FamilyTree? @relation(fields: [tree_id], references: [id], onDelete: SetNull)
+  person      Person?     @relation(fields: [person_id], references: [id], onDelete: SetNull)
+
   @@map("users")
 }
 
@@ -120,6 +126,7 @@ model FamilyTree {
   persons      Person[]      @relation("TreePersons")
   partnerships Partnership[] @relation("TreePartnerships")
   parent_child ParentChild[] @relation("TreeParentChild")
+  users        User[]
 
   @@map("family_trees")
 }
@@ -146,6 +153,7 @@ model Person {
   partnerships_as_b  Partnership[] @relation("PersonB")
   as_parent          ParentChild[] @relation("Parent")
   as_child           ParentChild[] @relation("Child")
+  users              User[]
 
   @@index([tree_id], map: "idx_persons_tree")
   @@map("persons")

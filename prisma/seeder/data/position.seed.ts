@@ -4,15 +4,15 @@ export const seedPositions = async (prisma: PrismaClient) => {
   console.log('📋 Seeding positions...');
   const adminPosition = await prisma.position.create({
     data: {
-      name: 'Administrator',
-      description: 'Full system access with all permissions',
+      name: 'ADMIN',
+      description: 'Administrator keluarga dengan akses penuh termasuk kelola pengguna dan seluruh silsilah',
     },
   });
 
   const memberPosition = await prisma.position.create({
     data: {
-      name: 'Member',
-      description: 'Standard user with limited permissions',
+      name: 'USER',
+      description: 'Anggota keluarga dengan akses silsilah keluarga terbatas (2 generasi ke atas & keturunan)',
     },
   });
 
