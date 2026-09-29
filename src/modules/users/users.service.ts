@@ -40,6 +40,27 @@ export class UsersService {
       throw new BadRequestException('Invalid position ID');
     }
 
+    if (userData.tree_id) {
+      const tree = await this.prisma.familyTree.findUnique({
+        where: { id: userData.tree_id },
+      });
+      if (!tree) {
+        throw new BadRequestException(`Family Tree dengan ID ${userData.tree_id} tidak ditemukan`);
+      }
+    }
+
+    if (userData.person_id) {
+      const person = await this.prisma.person.findUnique({
+        where: { id: userData.person_id },
+      });
+      if (!person) {
+        throw new BadRequestException(`Person dengan ID ${userData.person_id} tidak ditemukan di database`);
+      }
+      if (userData.tree_id && person.tree_id !== userData.tree_id) {
+        throw new BadRequestException(`Person dengan ID ${userData.person_id} bukan merupakan anggota dari pohon keluarga ini`);
+      }
+    }
+
     // Hash password
     const hashedPassword = await PasswordUtil.hash(password);
 
@@ -178,6 +199,29 @@ export class UsersService {
     let hashedPassword: string | undefined;
     if (password) {
       hashedPassword = await PasswordUtil.hash(password);
+    }
+
+    const targetTreeId = updateData.tree_id !== undefined ? updateData.tree_id : user.tree_id;
+
+    if (updateData.tree_id) {
+      const tree = await this.prisma.familyTree.findUnique({
+        where: { id: updateData.tree_id },
+      });
+      if (!tree) {
+        throw new BadRequestException(`Family Tree dengan ID ${updateData.tree_id} tidak ditemukan`);
+      }
+    }
+
+    if (updateData.person_id) {
+      const person = await this.prisma.person.findUnique({
+        where: { id: updateData.person_id },
+      });
+      if (!person) {
+        throw new BadRequestException(`Person dengan ID ${updateData.person_id} tidak ditemukan di database`);
+      }
+      if (targetTreeId && person.tree_id !== targetTreeId) {
+        throw new BadRequestException(`Person dengan ID ${updateData.person_id} bukan merupakan anggota dari pohon keluarga ini`);
+      }
     }
 
     const updatedUser = await this.prisma.user.update({
