@@ -20,7 +20,7 @@ export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   async create(createUserDto: CreateUserDto): Promise<UserEntity> {
-    const { email, password, position_id, ...userData } = createUserDto;
+    const { email, password, position_id, auto_create_person, ...userData } = createUserDto;
 
     // Check if email already exists
     const existingUser = await this.prisma.user.findUnique({
@@ -46,6 +46,26 @@ export class UsersService {
       });
       if (!tree) {
         throw new BadRequestException(`Family Tree dengan ID ${userData.tree_id} tidak ditemukan`);
+      }
+
+      if (auto_create_person && !userData.person_id) {
+        const newPerson = await this.prisma.person.create({
+          data: {
+            tree_id: userData.tree_id,
+            first_name: userData.first_name,
+            last_name: userData.last_name || null,
+            gender: 'unknown',
+            is_living: true,
+          },
+        });
+        userData.person_id = newPerson.id;
+
+        if (!tree.root_person_id) {
+          await this.prisma.familyTree.update({
+            where: { id: userData.tree_id },
+            data: { root_person_id: newPerson.id },
+          });
+        }
       }
     }
 
@@ -182,7 +202,7 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    const { email, password, ...updateData } = updateUserDto;
+    const { email, password, auto_create_person, ...updateData } = updateUserDto;
 
     // Check email uniqueness if changing email
     if (email && email !== user.email) {
@@ -203,24 +223,57 @@ export class UsersService {
 
     const targetTreeId = updateData.tree_id !== undefined ? updateData.tree_id : user.tree_id;
 
-    if (updateData.tree_id) {
+    if (auto_create_person && !updateData.person_id) {
+      if (!targetTreeId) {
+        throw new BadRequestException('Tree ID wajib ditentukan untuk membuat profil person otomatis');
+      }
       const tree = await this.prisma.familyTree.findUnique({
-        where: { id: updateData.tree_id },
+        where: { id: targetTreeId },
       });
       if (!tree) {
-        throw new BadRequestException(`Family Tree dengan ID ${updateData.tree_id} tidak ditemukan`);
+        throw new BadRequestException(`Family Tree dengan ID ${targetTreeId} tidak ditemukan`);
       }
-    }
 
-    if (updateData.person_id) {
-      const person = await this.prisma.person.findUnique({
-        where: { id: updateData.person_id },
+      const firstName = updateData.first_name || user.first_name;
+      const lastName = updateData.last_name !== undefined ? updateData.last_name : user.last_name;
+
+      const newPerson = await this.prisma.person.create({
+        data: {
+          tree_id: targetTreeId,
+          first_name: firstName,
+          last_name: lastName || null,
+          gender: 'unknown',
+          is_living: true,
+        },
       });
-      if (!person) {
-        throw new BadRequestException(`Person dengan ID ${updateData.person_id} tidak ditemukan di database`);
+      updateData.person_id = newPerson.id;
+
+      if (!tree.root_person_id) {
+        await this.prisma.familyTree.update({
+          where: { id: targetTreeId },
+          data: { root_person_id: newPerson.id },
+        });
       }
-      if (targetTreeId && person.tree_id !== targetTreeId) {
-        throw new BadRequestException(`Person dengan ID ${updateData.person_id} bukan merupakan anggota dari pohon keluarga ini`);
+    } else {
+      if (updateData.tree_id) {
+        const tree = await this.prisma.familyTree.findUnique({
+          where: { id: updateData.tree_id },
+        });
+        if (!tree) {
+          throw new BadRequestException(`Family Tree dengan ID ${updateData.tree_id} tidak ditemukan`);
+        }
+      }
+
+      if (updateData.person_id) {
+        const person = await this.prisma.person.findUnique({
+          where: { id: updateData.person_id },
+        });
+        if (!person) {
+          throw new BadRequestException(`Person dengan ID ${updateData.person_id} tidak ditemukan di database`);
+        }
+        if (targetTreeId && person.tree_id !== targetTreeId) {
+          throw new BadRequestException(`Person dengan ID ${updateData.person_id} bukan merupakan anggota dari pohon keluarga ini`);
+        }
       }
     }
 

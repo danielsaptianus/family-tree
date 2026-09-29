@@ -42,4 +42,12 @@ export class CreateUserDto {
   @IsUUID('4')
   @IsOptional()
   person_id?: string;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Jika true, backend otomatis membuat profil Person di tree dan menjadikannya root jika tree belum punya root',
+  })
+  @IsBoolean()
+  @IsOptional()
+  auto_create_person?: boolean;
 }
