@@ -27,6 +27,30 @@ export class RelationshipsService {
   // PARENT-CHILD (FR-08, FR-09)
   // ============================================
 
+  /**
+   * BR-04: Deteksi Siklus berbasis Recursive CTE
+   * Memeriksa apakah childId sudah merupakan leluhur (ancestor) dari parentId.
+   */
+  private async detectCycle(
+    tx: Prisma.TransactionClient,
+    treeId: string,
+    parentId: string,
+    childId: string,
+  ): Promise<boolean> {
+    const result = await tx.$queryRaw<Array<{ exists: number }>>`
+      WITH RECURSIVE ancestors AS (
+        SELECT parent_id FROM parent_child WHERE child_id = ${parentId}::uuid AND tree_id = ${treeId}::uuid
+        UNION
+        SELECT pc.parent_id
+        FROM parent_child pc
+        JOIN ancestors a ON pc.child_id = a.parent_id
+        WHERE pc.tree_id = ${treeId}::uuid
+      )
+      SELECT 1 as "exists" FROM ancestors WHERE parent_id = ${childId}::uuid LIMIT 1;
+    `;
+    return result.length > 0;
+  }
+
   async createParentChild(treeId: string, dto: CreateParentChildDto) {
     await this.ensureTreeExists(treeId);
 
@@ -40,198 +64,250 @@ export class RelationshipsService {
       );
     }
 
-    // BR-02: Semua person dalam satu relasi harus berada di tree yang sama
-    const [parent, child] = await Promise.all([
-      this.prisma.person.findUnique({ where: { id: dto.parentId } }),
-      this.prisma.person.findUnique({ where: { id: dto.childId } }),
-    ]);
+    return this.prisma.$transaction(async (tx) => {
+      // BR-12: Kunci sesi pohon keluarga menggunakan PostgreSQL Advisory Lock
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${treeId}))`;
 
-    if (!parent) {
-      throw new BusinessException(
-        BusinessErrorCode.PERSON_NOT_FOUND,
-        `Parent dengan ID ${dto.parentId} tidak ditemukan`,
-        { parentId: dto.parentId },
-        HttpStatus.NOT_FOUND,
-      );
-    }
+      // BR-02: Semua person dalam satu relasi harus berada di tree yang sama
+      const [parent, child] = await Promise.all([
+        tx.person.findUnique({ where: { id: dto.parentId } }),
+        tx.person.findUnique({ where: { id: dto.childId } }),
+      ]);
 
-    if (!child) {
-      throw new BusinessException(
-        BusinessErrorCode.PERSON_NOT_FOUND,
-        `Child dengan ID ${dto.childId} tidak ditemukan`,
-        { childId: dto.childId },
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    if (parent.tree_id !== treeId || child.tree_id !== treeId) {
-      throw new BusinessException(
-        BusinessErrorCode.CROSS_TREE_RELATION,
-        'Parent dan Child harus berada di dalam pohon silsilah (tree) yang sama',
-        { treeId, parentTreeId: parent.tree_id, childTreeId: child.tree_id },
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
-    }
-
-    // BR-05: Satu pasangan parent–child hanya punya satu tipe relasi
-    const existingRelation = await this.prisma.parentChild.findUnique({
-      where: {
-        parent_id_child_id: {
-          parent_id: dto.parentId,
-          child_id: dto.childId,
-        },
-      },
-    });
-
-    if (existingRelation) {
-      throw new BusinessException(
-        BusinessErrorCode.DUPLICATE_RELATION,
-        'Relasi antara parent dan child ini sudah ada',
-        { parentId: dto.parentId, childId: dto.childId, existingType: existingRelation.relation_type },
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    // BR-09: Seseorang tidak boleh sekaligus orang tua dan pasangan dari orang yang sama
-    const existingPartnership = await this.prisma.partnership.findFirst({
-      where: {
-        tree_id: treeId,
-        OR: [
-          { person_a_id: dto.parentId, person_b_id: dto.childId },
-          { person_a_id: dto.childId, person_b_id: dto.parentId },
-        ],
-      },
-    });
-
-    if (existingPartnership) {
-      throw new BusinessException(
-        BusinessErrorCode.CONFLICTING_RELATION,
-        'Seseorang tidak boleh sekaligus menjadi orang tua dan pasangan dari orang yang sama',
-        { parentId: dto.parentId, childId: dto.childId },
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
-    }
-
-    // BR-03: Maksimal 2 orang tua bertipe biological per person
-    const relationType = dto.relationType ?? 'biological';
-    if (relationType === 'biological') {
-      const biologicalCount = await this.prisma.parentChild.count({
-        where: {
-          child_id: dto.childId,
-          relation_type: 'biological',
-        },
-      });
-
-      if (biologicalCount >= 2) {
+      if (!parent) {
         throw new BusinessException(
-          BusinessErrorCode.MAX_BIOLOGICAL_PARENTS,
-          'Maksimal 2 orang tua bertipe biological per person',
-          { childId: dto.childId, currentCount: biologicalCount },
-          HttpStatus.UNPROCESSABLE_ENTITY,
-        );
-      }
-
-      // BR-06: Jika kedua tanggal ada, birth_date child harus setelah birth_date parent biologis
-      if (parent.birth_date && child.birth_date && child.birth_date <= parent.birth_date) {
-        throw new BusinessException(
-          BusinessErrorCode.INVALID_BIRTH_ORDER,
-          'Tanggal lahir anak harus setelah tanggal lahir orang tua kandung',
-          { parentBirthDate: parent.birth_date, childBirthDate: child.birth_date },
-          HttpStatus.UNPROCESSABLE_ENTITY,
-        );
-      }
-    }
-
-    // BR-08: end_date tidak boleh sebelum start_date
-    let startDate: Date | undefined = dto.startDate ? new Date(dto.startDate) : undefined;
-    let endDate: Date | undefined = dto.endDate ? new Date(dto.endDate) : undefined;
-
-    if (startDate && endDate && endDate < startDate) {
-      throw new BusinessException(
-        BusinessErrorCode.INVALID_DATES,
-        'endDate tidak boleh sebelum startDate',
-        { startDate: dto.startDate, endDate: dto.endDate },
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
-    }
-
-    if (relationType === 'adopted' && startDate && child.birth_date && startDate < child.birth_date) {
-      throw new BusinessException(
-        BusinessErrorCode.INVALID_DATES,
-        'Tanggal mulai adopsi tidak boleh sebelum tanggal lahir anak',
-        { startDate: dto.startDate, childBirthDate: child.birth_date },
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
-    }
-
-    // Validasi Union Asal (BR-13 & BR-14)
-    if (dto.partnershipId) {
-      const union = await this.prisma.partnership.findUnique({
-        where: { id: dto.partnershipId },
-      });
-
-      if (!union || union.tree_id !== treeId) {
-        throw new BusinessException(
-          BusinessErrorCode.INVALID_UNION,
-          `Partnership dengan ID ${dto.partnershipId} tidak ditemukan di tree ini`,
-          { partnershipId: dto.partnershipId },
+          BusinessErrorCode.PERSON_NOT_FOUND,
+          `Parent dengan ID ${dto.parentId} tidak ditemukan`,
+          { parentId: dto.parentId },
           HttpStatus.NOT_FOUND,
         );
       }
 
-      // BR-13: partnership_id harus union yang salah satu anggotanya adalah parent tersebut
-      if (union.person_a_id !== dto.parentId && union.person_b_id !== dto.parentId) {
+      if (!child) {
         throw new BusinessException(
-          BusinessErrorCode.INVALID_UNION,
-          'Partnership yang dipilih harus melibatkan parent tersebut sebagai salah satu pasangan',
-          { parentId: dto.parentId, partnershipId: dto.partnershipId },
+          BusinessErrorCode.PERSON_NOT_FOUND,
+          `Child dengan ID ${dto.childId} tidak ditemukan`,
+          { childId: dto.childId },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      if (parent.tree_id !== treeId || child.tree_id !== treeId) {
+        throw new BusinessException(
+          BusinessErrorCode.CROSS_TREE_RELATION,
+          'Parent dan Child harus berada di dalam pohon silsilah (tree) yang sama',
+          { treeId, parentTreeId: parent.tree_id, childTreeId: child.tree_id },
           HttpStatus.UNPROCESSABLE_ENTITY,
         );
       }
 
-      // BR-14: Jika anak punya dua orang tua biologis yang menautkan union, harus union yang sama
+      // BR-05: Satu pasangan parent–child hanya punya satu tipe relasi
+      const existingRelation = await tx.parentChild.findUnique({
+        where: {
+          parent_id_child_id: {
+            parent_id: dto.parentId,
+            child_id: dto.childId,
+          },
+        },
+      });
+
+      if (existingRelation) {
+        throw new BusinessException(
+          BusinessErrorCode.DUPLICATE_RELATION,
+          'Relasi antara parent dan child ini sudah ada',
+          { parentId: dto.parentId, childId: dto.childId, existingType: existingRelation.relation_type },
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      // BR-04: Deteksi Siklus (Cycle Detection via Recursive CTE)
+      const hasCycle = await this.detectCycle(tx, treeId, dto.parentId, dto.childId);
+      if (hasCycle) {
+        throw new BusinessException(
+          BusinessErrorCode.CYCLE_DETECTED,
+          'Relasi ini akan membuat siklus: child adalah leluhur dari parent',
+          { parentId: dto.parentId, childId: dto.childId },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+
+      // BR-09: Seseorang tidak boleh sekaligus orang tua dan pasangan dari orang yang sama
+      const existingPartnership = await tx.partnership.findFirst({
+        where: {
+          tree_id: treeId,
+          OR: [
+            { person_a_id: dto.parentId, person_b_id: dto.childId },
+            { person_a_id: dto.childId, person_b_id: dto.parentId },
+          ],
+        },
+      });
+
+      if (existingPartnership) {
+        throw new BusinessException(
+          BusinessErrorCode.CONFLICTING_RELATION,
+          'Seseorang tidak boleh sekaligus menjadi orang tua dan pasangan dari orang yang sama',
+          { parentId: dto.parentId, childId: dto.childId },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+
+      // BR-03: Maksimal 2 orang tua bertipe biological per person
+      const relationType = dto.relationType ?? 'biological';
       if (relationType === 'biological') {
-        const otherBioParent = await this.prisma.parentChild.findFirst({
+        const biologicalCount = await tx.parentChild.count({
           where: {
             child_id: dto.childId,
             relation_type: 'biological',
-            partnership_id: { not: null },
           },
         });
 
-        if (otherBioParent && otherBioParent.partnership_id !== dto.partnershipId) {
+        if (biologicalCount >= 2) {
           throw new BusinessException(
-            BusinessErrorCode.INVALID_UNION,
-            'Kedua orang tua biologis dari anak harus menunjuk ke union (pernikahan) yang sama',
-            {
-              childId: dto.childId,
-              existingUnionId: otherBioParent.partnership_id,
-              providedUnionId: dto.partnershipId,
-            },
+            BusinessErrorCode.MAX_BIOLOGICAL_PARENTS,
+            'Maksimal 2 orang tua bertipe biological per person',
+            { childId: dto.childId, currentCount: biologicalCount },
             HttpStatus.UNPROCESSABLE_ENTITY,
           );
         }
-      }
-    }
 
-    return this.prisma.parentChild.create({
-      data: {
-        tree_id: treeId,
-        parent_id: dto.parentId,
-        child_id: dto.childId,
-        relation_type: relationType,
-        partnership_id: dto.partnershipId,
-        start_date: startDate,
-        end_date: endDate,
-      },
-      include: {
-        parent: {
-          select: { id: true, first_name: true, last_name: true, gender: true },
+        // BR-06 & BR-07: Kronologi tanggal lahir orang tua dan anak kandung
+        if (parent.birth_date && child.birth_date) {
+          if (child.birth_date <= parent.birth_date) {
+            throw new BusinessException(
+              BusinessErrorCode.INVALID_BIRTH_ORDER,
+              'Tanggal lahir anak harus setelah tanggal lahir orang tua kandung',
+              { parentBirthDate: parent.birth_date, childBirthDate: child.birth_date },
+              HttpStatus.UNPROCESSABLE_ENTITY,
+            );
+          }
+
+          // Selisih usia minimal orang tua kandung adalah 12 tahun
+          const minParentAgeMs = 12 * 365.25 * 24 * 60 * 60 * 1000;
+          if (child.birth_date.getTime() - parent.birth_date.getTime() < minParentAgeMs) {
+            throw new BusinessException(
+              BusinessErrorCode.INVALID_BIRTH_ORDER,
+              'Usia orang tua kandung saat anak lahir minimal harus 12 tahun',
+              { parentBirthDate: parent.birth_date, childBirthDate: child.birth_date },
+              HttpStatus.UNPROCESSABLE_ENTITY,
+            );
+          }
+        }
+
+        // Kronologi jika orang tua sudah wafat saat anak lahir
+        if (parent.death_date && child.birth_date) {
+          if (parent.gender === 'female' && child.birth_date > parent.death_date) {
+            throw new BusinessException(
+              BusinessErrorCode.INVALID_DATES,
+              'Anak kandung tidak dapat lahir setelah tanggal wafat ibu',
+              { motherDeathDate: parent.death_date, childBirthDate: child.birth_date },
+              HttpStatus.UNPROCESSABLE_ENTITY,
+            );
+          }
+          if (parent.gender === 'male') {
+            const maxPosthumousDaysMs = 300 * 24 * 60 * 60 * 1000;
+            if (child.birth_date.getTime() - parent.death_date.getTime() > maxPosthumousDaysMs) {
+              throw new BusinessException(
+                BusinessErrorCode.INVALID_DATES,
+                'Anak kandung tidak dapat lahir lebih dari 300 hari setelah tanggal wafat ayah',
+                { fatherDeathDate: parent.death_date, childBirthDate: child.birth_date },
+                HttpStatus.UNPROCESSABLE_ENTITY,
+              );
+            }
+          }
+        }
+      }
+
+      // BR-08: end_date tidak boleh sebelum start_date
+      let startDate: Date | undefined = dto.startDate ? new Date(dto.startDate) : undefined;
+      let endDate: Date | undefined = dto.endDate ? new Date(dto.endDate) : undefined;
+
+      if (startDate && endDate && endDate < startDate) {
+        throw new BusinessException(
+          BusinessErrorCode.INVALID_DATES,
+          'endDate tidak boleh sebelum startDate',
+          { startDate: dto.startDate, endDate: dto.endDate },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+
+      if (relationType === 'adopted' && startDate && child.birth_date && startDate < child.birth_date) {
+        throw new BusinessException(
+          BusinessErrorCode.INVALID_DATES,
+          'Tanggal mulai adopsi tidak boleh sebelum tanggal lahir anak',
+          { startDate: dto.startDate, childBirthDate: child.birth_date },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+
+      // Validasi Union Asal (BR-13 & BR-14)
+      if (dto.partnershipId) {
+        const union = await tx.partnership.findUnique({
+          where: { id: dto.partnershipId },
+        });
+
+        if (!union || union.tree_id !== treeId) {
+          throw new BusinessException(
+            BusinessErrorCode.INVALID_UNION,
+            `Partnership dengan ID ${dto.partnershipId} tidak ditemukan di tree ini`,
+            { partnershipId: dto.partnershipId },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        // BR-13: partnership_id harus union yang salah satu anggotanya adalah parent tersebut
+        if (union.person_a_id !== dto.parentId && union.person_b_id !== dto.parentId) {
+          throw new BusinessException(
+            BusinessErrorCode.INVALID_UNION,
+            'Partnership yang dipilih harus melibatkan parent tersebut sebagai salah satu pasangan',
+            { parentId: dto.parentId, partnershipId: dto.partnershipId },
+            HttpStatus.UNPROCESSABLE_ENTITY,
+          );
+        }
+
+        // BR-14: Jika anak punya dua orang tua biologis yang menautkan union, harus union yang sama
+        if (relationType === 'biological') {
+          const otherBioParent = await tx.parentChild.findFirst({
+            where: {
+              child_id: dto.childId,
+              relation_type: 'biological',
+              partnership_id: { not: null },
+            },
+          });
+
+          if (otherBioParent && otherBioParent.partnership_id !== dto.partnershipId) {
+            throw new BusinessException(
+              BusinessErrorCode.INVALID_UNION,
+              'Kedua orang tua biologis dari anak harus menunjuk ke union (pernikahan) yang sama',
+              {
+                childId: dto.childId,
+                existingUnionId: otherBioParent.partnership_id,
+                providedUnionId: dto.partnershipId,
+              },
+              HttpStatus.UNPROCESSABLE_ENTITY,
+            );
+          }
+        }
+      }
+
+      return tx.parentChild.create({
+        data: {
+          tree_id: treeId,
+          parent_id: dto.parentId,
+          child_id: dto.childId,
+          relation_type: relationType,
+          partnership_id: dto.partnershipId,
+          start_date: startDate,
+          end_date: endDate,
         },
-        child: {
-          select: { id: true, first_name: true, last_name: true, gender: true },
+        include: {
+          parent: {
+            select: { id: true, first_name: true, last_name: true, gender: true },
+          },
+          child: {
+            select: { id: true, first_name: true, last_name: true, gender: true },
+          },
         },
-      },
+      });
     });
   }
 
@@ -329,6 +405,26 @@ export class RelationshipsService {
       );
     }
 
+    // Tanggal mulai pernikahan tidak boleh mendahului tanggal lahir salah satu pasangan
+    if (startDate) {
+      if (personA.birth_date && startDate < personA.birth_date) {
+        throw new BusinessException(
+          BusinessErrorCode.INVALID_DATES,
+          'Tanggal mulai pernikahan tidak boleh mendahului tanggal lahir person A',
+          { startDate: dto.startDate, birthDateA: personA.birth_date },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      if (personB.birth_date && startDate < personB.birth_date) {
+        throw new BusinessException(
+          BusinessErrorCode.INVALID_DATES,
+          'Tanggal mulai pernikahan tidak boleh mendahului tanggal lahir person B',
+          { startDate: dto.startDate, birthDateB: personB.birth_date },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+    }
+
     // BR-15: start_date union tidak boleh setelah death_date salah satu pasangan
     if (startDate) {
       if (personA.death_date && startDate > personA.death_date) {
@@ -359,80 +455,85 @@ export class RelationshipsService {
       );
     }
 
-    // BR-12: Jika allow_concurrent_partnerships = false, person tidak boleh punya dua union aktif sekaligus
-    if (!tree.allow_concurrent_partnerships) {
-      const activeStatuses = ['married', 'partner', 'separated'];
-      const isNewActive = activeStatuses.includes(status) && !endDate;
-
-      if (isNewActive) {
-        const [activeA, activeB] = await Promise.all([
-          this.prisma.partnership.findFirst({
-            where: {
-              tree_id: treeId,
-              OR: [{ person_a_id: dto.personAId }, { person_b_id: dto.personAId }],
-              status: { in: ['married', 'partner', 'separated'] },
-              end_date: null,
-            },
-          }),
-          this.prisma.partnership.findFirst({
-            where: {
-              tree_id: treeId,
-              OR: [{ person_a_id: dto.personBId }, { person_b_id: dto.personBId }],
-              status: { in: ['married', 'partner', 'separated'] },
-              end_date: null,
-            },
-          }),
-        ]);
-
-        if (activeA || activeB) {
-          throw new BusinessException(
-            BusinessErrorCode.CONCURRENT_PARTNERSHIP,
-            'Pohon silsilah ini melarang pernikahan aktif bersamaan (poligami dimatikan)',
-            { conflictingPersonId: activeA ? dto.personAId : dto.personBId },
-            HttpStatus.UNPROCESSABLE_ENTITY,
-          );
-        }
-      }
-    }
-
     // Urutkan ID: person_a_id < person_b_id agar memenuhi chk_partner_order dan GiST overlap detection
     const [sortedPersonAId, sortedPersonBId] = [dto.personAId, dto.personBId].sort();
 
-    try {
-      return await this.prisma.partnership.create({
-        data: {
-          tree_id: treeId,
-          person_a_id: sortedPersonAId,
-          person_b_id: sortedPersonBId,
-          status,
-          start_date: startDate,
-          end_date: endDate,
-          notes: dto.notes,
-        },
-        include: {
-          person_a: {
-            select: { id: true, first_name: true, last_name: true, gender: true },
-          },
-          person_b: {
-            select: { id: true, first_name: true, last_name: true, gender: true },
-          },
-        },
-      });
-    } catch (error: any) {
-      // Tangkap pelanggaran PostgreSQL exclusion constraint (ex_partnership_overlap)
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError ||
-        error.message?.includes('ex_partnership_overlap')
-      ) {
-        throw new BusinessException(
-          BusinessErrorCode.OVERLAPPING_PARTNERSHIP,
-          'Periode pernikahan untuk pasangan yang sama tidak boleh saling tumpang tindih',
-          { personAId: dto.personAId, personBId: dto.personBId, startDate: dto.startDate, endDate: dto.endDate },
-          HttpStatus.UNPROCESSABLE_ENTITY,
-        );
+    return this.prisma.$transaction(async (tx) => {
+      // BR-12: Kunci sesi pohon keluarga menggunakan PostgreSQL Advisory Lock
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${treeId}))`;
+
+      // BR-12: Jika allow_concurrent_partnerships = false, person tidak boleh punya dua union aktif sekaligus
+      if (!tree.allow_concurrent_partnerships) {
+        const activeStatuses = ['married', 'partner', 'separated'];
+        const isNewActive = activeStatuses.includes(status) && !endDate;
+
+        if (isNewActive) {
+          const [activeA, activeB] = await Promise.all([
+            tx.partnership.findFirst({
+              where: {
+                tree_id: treeId,
+                OR: [{ person_a_id: dto.personAId }, { person_b_id: dto.personAId }],
+                status: { in: ['married', 'partner', 'separated'] },
+                end_date: null,
+              },
+            }),
+            tx.partnership.findFirst({
+              where: {
+                tree_id: treeId,
+                OR: [{ person_a_id: dto.personBId }, { person_b_id: dto.personBId }],
+                status: { in: ['married', 'partner', 'separated'] },
+                end_date: null,
+              },
+            }),
+          ]);
+
+          if (activeA || activeB) {
+            throw new BusinessException(
+              BusinessErrorCode.CONCURRENT_PARTNERSHIP,
+              'Pohon silsilah ini melarang pernikahan aktif bersamaan (poligami dimatikan)',
+              { conflictingPersonId: activeA ? dto.personAId : dto.personBId },
+              HttpStatus.UNPROCESSABLE_ENTITY,
+            );
+          }
+        }
       }
-      throw error;
-    }
+
+      try {
+        return await tx.partnership.create({
+          data: {
+            tree_id: treeId,
+            person_a_id: sortedPersonAId,
+            person_b_id: sortedPersonBId,
+            status,
+            start_date: startDate,
+            end_date: endDate,
+            notes: dto.notes,
+          },
+          include: {
+            person_a: {
+              select: { id: true, first_name: true, last_name: true, gender: true },
+            },
+            person_b: {
+              select: { id: true, first_name: true, last_name: true, gender: true },
+            },
+          },
+        });
+      } catch (error: any) {
+        // Tangkap pelanggaran PostgreSQL exclusion constraint (ex_partnership_overlap)
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError ||
+          error.message?.includes('ex_partnership_overlap')
+        ) {
+          throw new BusinessException(
+            BusinessErrorCode.OVERLAPPING_PARTNERSHIP,
+            'Periode pernikahan untuk pasangan yang sama tidak boleh saling tumpang tindih',
+            { personAId: dto.personAId, personBId: dto.personBId, startDate: dto.startDate, endDate: dto.endDate },
+            HttpStatus.UNPROCESSABLE_ENTITY,
+          );
+        }
+        throw error;
+      }
+    });
   }
 
   async updatePartnership(treeId: string, id: string, dto: UpdatePartnershipDto) {
@@ -466,38 +567,43 @@ export class RelationshipsService {
       );
     }
 
-    try {
-      return await this.prisma.partnership.update({
-        where: { id },
-        data: {
-          ...(dto.status !== undefined && { status: dto.status }),
-          ...(dto.startDate !== undefined && { start_date: startDate }),
-          ...(dto.endDate !== undefined && { end_date: endDate }),
-          ...(dto.notes !== undefined && { notes: dto.notes }),
-        },
-        include: {
-          person_a: {
-            select: { id: true, first_name: true, last_name: true, gender: true },
+    return this.prisma.$transaction(async (tx) => {
+      // BR-12: Kunci sesi pohon keluarga menggunakan PostgreSQL Advisory Lock
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${treeId}))`;
+
+      try {
+        return await tx.partnership.update({
+          where: { id },
+          data: {
+            ...(dto.status !== undefined && { status: dto.status }),
+            ...(dto.startDate !== undefined && { start_date: startDate }),
+            ...(dto.endDate !== undefined && { end_date: endDate }),
+            ...(dto.notes !== undefined && { notes: dto.notes }),
           },
-          person_b: {
-            select: { id: true, first_name: true, last_name: true, gender: true },
+          include: {
+            person_a: {
+              select: { id: true, first_name: true, last_name: true, gender: true },
+            },
+            person_b: {
+              select: { id: true, first_name: true, last_name: true, gender: true },
+            },
           },
-        },
-      });
-    } catch (error: any) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError ||
-        error.message?.includes('ex_partnership_overlap')
-      ) {
-        throw new BusinessException(
-          BusinessErrorCode.OVERLAPPING_PARTNERSHIP,
-          'Periode pernikahan untuk pasangan yang sama tidak boleh saling tumpang tindih',
-          { id, startDate: dto.startDate, endDate: dto.endDate },
-          HttpStatus.UNPROCESSABLE_ENTITY,
-        );
+        });
+      } catch (error: any) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError ||
+          error.message?.includes('ex_partnership_overlap')
+        ) {
+          throw new BusinessException(
+            BusinessErrorCode.OVERLAPPING_PARTNERSHIP,
+            'Periode pernikahan untuk pasangan yang sama tidak boleh saling tumpang tindih',
+            { id, startDate: dto.startDate, endDate: dto.endDate },
+            HttpStatus.UNPROCESSABLE_ENTITY,
+          );
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
   }
 
   async removePartnership(treeId: string, id: string) {
