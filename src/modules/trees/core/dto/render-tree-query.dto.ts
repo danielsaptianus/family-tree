@@ -70,4 +70,19 @@ export class RenderTreeQueryDto {
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   includeStepChildren?: boolean = false;
+
+  @ApiPropertyOptional({
+    description: 'Tipe relasi parent-child (CSV: biological, adopted, foster, guardian)',
+    example: 'biological,adopted',
+    default: 'biological,adopted',
+  })
+  @IsOptional()
+  relationTypes?: string = 'biological,adopted';
+
+  @ApiPropertyOptional({
+    description: 'Status perkawinan yang disertakan (CSV: married, divorced, widowed, separated, annulled, partner)',
+    example: 'married,partner,widowed',
+  })
+  @IsOptional()
+  unionStatuses?: string;
 }

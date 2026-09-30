@@ -3,12 +3,17 @@ import { PrismaService } from '@common/prisma/prisma.service';
 import { CreateTreeDto } from './core/dto/create-tree.dto';
 import { UpdateTreeDto } from './core/dto/update-tree.dto';
 import { TreeQueryDto } from './core/dto/tree-query.dto';
+import { RenderTreeQueryDto } from './core/dto/render-tree-query.dto';
+import { TreeBuilderService } from './core/services/tree-builder.service';
 import { PaginatedResponseDto } from '@common/dto/pagination.dto';
 import { BusinessException, BusinessErrorCode } from '@common/exceptions/business.exception';
 
 @Injectable()
 export class TreesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly treeBuilderService: TreeBuilderService,
+  ) {}
 
   async create(dto: CreateTreeDto) {
     if (dto.rootPersonId) {
@@ -596,225 +601,11 @@ export class TreesService {
   }
 
   // =========================================================================
-  // RENDER GLOBAL FAMILY TREE (Fitur tersendiri untuk keseluruhan silsilah)
+  // RENDER GLOBAL FAMILY TREE (TreeBuilder D3 Engine - Milestone 4)
   // =========================================================================
 
-  async renderTree(treeId: string, query: any) {
-    const tree = await this.prisma.familyTree.findUnique({
-      where: { id: treeId },
-    });
-    if (!tree) {
-      throw new BusinessException(
-        BusinessErrorCode.TREE_NOT_FOUND,
-        `Tree dengan ID ${treeId} tidak ditemukan`,
-        { treeId },
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    const rootId = query.rootId || tree.root_person_id;
-    if (!rootId) {
-      throw new BusinessException(
-        BusinessErrorCode.PERSON_NOT_FOUND,
-        `Tree ini belum memiliki root person untuk dirender`,
-        { treeId },
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    const root = await this.prisma.person.findUnique({
-      where: { id: rootId },
-    });
-    if (!root || root.tree_id !== treeId) {
-      throw new BusinessException(
-        BusinessErrorCode.PERSON_NOT_FOUND,
-        `Root person dengan ID ${rootId} tidak ditemukan di tree ini`,
-        { rootId, treeId },
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    const format = query.format || 'hierarchy';
-    const direction = query.direction || 'descendants';
-    const maxDepth = Number(query.depth) || 5;
-
-    if (format === 'graph') {
-      return this.renderGraph(treeId, rootId, maxDepth, direction);
-    } else {
-      return this.renderHierarchy(treeId, root, maxDepth, direction);
-    }
-  }
-
-  private async renderHierarchy(
-    treeId: string,
-    rootPerson: any,
-    maxDepth: number,
-    direction: string,
-  ) {
-    const buildNode = async (person: any, currentDepth: number): Promise<any> => {
-      const pMap = await this.getPartnershipsForPersons(treeId, [person.id]);
-      const node: any = {
-        id: person.id,
-        name: `${person.first_name}${person.last_name ? ' ' + person.last_name : ''}`,
-        gender: person.gender,
-        birthDate: person.birth_date,
-        deathDate: person.death_date,
-        isLiving: person.is_living,
-        photoUrl: person.photo_url,
-        generation: currentDepth,
-        unions: pMap.get(person.id) || [],
-        children: [],
-      };
-
-      if (currentDepth >= maxDepth) {
-        node.hasMore = true;
-        return node;
-      }
-
-      if (direction === 'descendants' || direction === 'all') {
-        const relations = await this.prisma.parentChild.findMany({
-          where: { tree_id: treeId, parent_id: person.id },
-          include: { child: true },
-        });
-
-        for (const rel of relations) {
-          const childNode = await buildNode(rel.child, currentDepth + 1);
-          childNode.relationType = rel.relation_type;
-          childNode.unionId = rel.partnership_id;
-          node.children.push(childNode);
-        }
-      } else if (direction === 'ancestors') {
-        const relations = await this.prisma.parentChild.findMany({
-          where: { tree_id: treeId, child_id: person.id },
-          include: { parent: true },
-        });
-
-        for (const rel of relations) {
-          const parentNode = await buildNode(rel.parent, currentDepth + 1);
-          parentNode.relationType = rel.relation_type;
-          node.children.push(parentNode);
-        }
-      }
-
-      return node;
-    };
-
-    const treeHierarchy = await buildNode(rootPerson, 0);
-
-    return {
-      meta: {
-        treeId,
-        rootId: rootPerson.id,
-        direction,
-        depth: maxDepth,
-        format: 'hierarchy',
-      },
-      data: treeHierarchy,
-    };
-  }
-
-  private async renderGraph(
-    treeId: string,
-    rootId: string,
-    maxDepth: number,
-    direction: string,
-  ) {
-    const visitedPersons = new Set<string>();
-    const nodes: any[] = [];
-    const links: any[] = [];
-
-    const queue: { id: string; depth: number }[] = [{ id: rootId, depth: 0 }];
-    visitedPersons.add(rootId);
-
-    while (queue.length > 0) {
-      const { id, depth } = queue.shift()!;
-      const person = await this.prisma.person.findUnique({ where: { id } });
-      if (person) {
-        nodes.push(this.formatPerson(person));
-      }
-
-      if (depth >= maxDepth) continue;
-
-      // Partnerships
-      const partnerships = await this.prisma.partnership.findMany({
-        where: {
-          tree_id: treeId,
-          OR: [{ person_a_id: id }, { person_b_id: id }],
-        },
-      });
-
-      for (const p of partnerships) {
-        const partnerId = p.person_a_id === id ? p.person_b_id : p.person_a_id;
-        links.push({
-          id: p.id,
-          source: p.person_a_id,
-          target: p.person_b_id,
-          type: 'partnership',
-          status: p.status,
-        });
-
-        if (!visitedPersons.has(partnerId)) {
-          visitedPersons.add(partnerId);
-          queue.push({ id: partnerId, depth });
-        }
-      }
-
-      // Parent-Child relations
-      if (direction === 'descendants' || direction === 'all') {
-        const children = await this.prisma.parentChild.findMany({
-          where: { tree_id: treeId, parent_id: id },
-        });
-
-        for (const c of children) {
-          links.push({
-            id: c.id,
-            source: id,
-            target: c.child_id,
-            type: 'parent-child',
-            relationType: c.relation_type,
-          });
-
-          if (!visitedPersons.has(c.child_id)) {
-            visitedPersons.add(c.child_id);
-            queue.push({ id: c.child_id, depth: depth + 1 });
-          }
-        }
-      }
-
-      if (direction === 'ancestors' || direction === 'all') {
-        const parents = await this.prisma.parentChild.findMany({
-          where: { tree_id: treeId, child_id: id },
-        });
-
-        for (const p of parents) {
-          links.push({
-            id: p.id,
-            source: p.parent_id,
-            target: id,
-            type: 'parent-child',
-            relationType: p.relation_type,
-          });
-
-          if (!visitedPersons.has(p.parent_id)) {
-            visitedPersons.add(p.parent_id);
-            queue.push({ id: p.parent_id, depth: depth + 1 });
-          }
-        }
-      }
-    }
-
-    return {
-      meta: {
-        treeId,
-        rootId,
-        direction,
-        depth: maxDepth,
-        format: 'graph',
-        totalNodes: nodes.length,
-        totalLinks: links.length,
-      },
-      nodes,
-      links,
-    };
+  async renderTree(treeId: string, query: RenderTreeQueryDto) {
+    return this.treeBuilderService.render(treeId, query);
   }
 }
+
