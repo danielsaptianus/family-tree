@@ -16,6 +16,7 @@ export enum BusinessErrorCode {
   PERSON_NOT_FOUND = 'PERSON_NOT_FOUND',
   RELATION_NOT_FOUND = 'RELATION_NOT_FOUND',
   PARTNERSHIP_NOT_FOUND = 'PARTNERSHIP_NOT_FOUND',
+  TREE_TOO_LARGE = 'TREE_TOO_LARGE',
 }
 
 export class BusinessException extends HttpException {

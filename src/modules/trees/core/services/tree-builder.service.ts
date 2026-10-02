@@ -135,6 +135,16 @@ export class TreeBuilderService {
     }
     const initialPersonIds = Array.from(personIdsSet);
 
+    // NFR-03: Output render dibatasi 10.000 node; lebih dari itu 422 TREE_TOO_LARGE
+    if (initialPersonIds.length > 10000) {
+      throw new BusinessException(
+        BusinessErrorCode.TREE_TOO_LARGE,
+        'Ukuran silsilah melebihi batas maksimal 10.000 node. Silakan turunkan parameter depth untuk mengurangi ukuran pohon.',
+        { totalNodes: initialPersonIds.length, maxLimit: 10000, currentDepth: maxDepth },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
     // -----------------------------------------------------------------------
     // QUERY 2: Batch Query Persons & Partnerships (WHERE id = ANY(...))
     // -----------------------------------------------------------------------

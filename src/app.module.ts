@@ -15,6 +15,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PrismaModule } from './common/prisma/prisma.module';
 
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+
 // Feature modules
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
@@ -32,6 +34,14 @@ import { RelationshipsModule } from './modules/relationships/relationships.modul
       load: [appConfig, databaseConfig, jwtConfig, swaggerConfig],
     }),
 
+    // Rate Limiter: 100 requests per minute per IP (NFR-06)
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
+
     // Common modules
     PrismaModule,
 
@@ -44,6 +54,12 @@ import { RelationshipsModule } from './modules/relationships/relationships.modul
     RelationshipsModule,
   ],
   providers: [
+    // Global Rate Limiting Guard
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+
     // Global guards
     {
       provide: APP_GUARD,
