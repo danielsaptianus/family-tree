@@ -51,6 +51,51 @@ export class RelationshipsService {
     return result.length > 0;
   }
 
+  private validateParentChildChronology(parent: any, child: any) {
+    if (parent.birth_date && child.birth_date) {
+      if (child.birth_date <= parent.birth_date) {
+        throw new BusinessException(
+          BusinessErrorCode.INVALID_BIRTH_ORDER,
+          `Tanggal lahir anak harus setelah tanggal lahir orang tua kandung (${parent.first_name})`,
+          { parentBirthDate: parent.birth_date, childBirthDate: child.birth_date },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+
+      const minParentAgeMs = 12 * 365.25 * 24 * 60 * 60 * 1000;
+      if (child.birth_date.getTime() - parent.birth_date.getTime() < minParentAgeMs) {
+        throw new BusinessException(
+          BusinessErrorCode.INVALID_BIRTH_ORDER,
+          `Usia orang tua kandung (${parent.first_name}) saat anak lahir minimal harus 12 tahun`,
+          { parentBirthDate: parent.birth_date, childBirthDate: child.birth_date },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+    }
+
+    if (parent.death_date && child.birth_date) {
+      if (parent.gender === 'female' && child.birth_date > parent.death_date) {
+        throw new BusinessException(
+          BusinessErrorCode.INVALID_DATES,
+          `Anak kandung tidak dapat lahir setelah tanggal wafat ibu (${parent.first_name})`,
+          { motherDeathDate: parent.death_date, childBirthDate: child.birth_date },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      if (parent.gender === 'male') {
+        const maxPosthumousDaysMs = 300 * 24 * 60 * 60 * 1000;
+        if (child.birth_date.getTime() - parent.death_date.getTime() > maxPosthumousDaysMs) {
+          throw new BusinessException(
+            BusinessErrorCode.INVALID_DATES,
+            `Anak kandung tidak dapat lahir lebih dari 300 hari setelah tanggal wafat ayah (${parent.first_name})`,
+            { fatherDeathDate: parent.death_date, childBirthDate: child.birth_date },
+            HttpStatus.UNPROCESSABLE_ENTITY,
+          );
+        }
+      }
+    }
+  }
+
   async createParentChild(treeId: string, dto: CreateParentChildDto) {
     await this.ensureTreeExists(treeId);
 
@@ -171,50 +216,7 @@ export class RelationshipsService {
         }
 
         // BR-06 & BR-07: Kronologi tanggal lahir orang tua dan anak kandung
-        if (parent.birth_date && child.birth_date) {
-          if (child.birth_date <= parent.birth_date) {
-            throw new BusinessException(
-              BusinessErrorCode.INVALID_BIRTH_ORDER,
-              'Tanggal lahir anak harus setelah tanggal lahir orang tua kandung',
-              { parentBirthDate: parent.birth_date, childBirthDate: child.birth_date },
-              HttpStatus.UNPROCESSABLE_ENTITY,
-            );
-          }
-
-          // Selisih usia minimal orang tua kandung adalah 12 tahun
-          const minParentAgeMs = 12 * 365.25 * 24 * 60 * 60 * 1000;
-          if (child.birth_date.getTime() - parent.birth_date.getTime() < minParentAgeMs) {
-            throw new BusinessException(
-              BusinessErrorCode.INVALID_BIRTH_ORDER,
-              'Usia orang tua kandung saat anak lahir minimal harus 12 tahun',
-              { parentBirthDate: parent.birth_date, childBirthDate: child.birth_date },
-              HttpStatus.UNPROCESSABLE_ENTITY,
-            );
-          }
-        }
-
-        // Kronologi jika orang tua sudah wafat saat anak lahir
-        if (parent.death_date && child.birth_date) {
-          if (parent.gender === 'female' && child.birth_date > parent.death_date) {
-            throw new BusinessException(
-              BusinessErrorCode.INVALID_DATES,
-              'Anak kandung tidak dapat lahir setelah tanggal wafat ibu',
-              { motherDeathDate: parent.death_date, childBirthDate: child.birth_date },
-              HttpStatus.UNPROCESSABLE_ENTITY,
-            );
-          }
-          if (parent.gender === 'male') {
-            const maxPosthumousDaysMs = 300 * 24 * 60 * 60 * 1000;
-            if (child.birth_date.getTime() - parent.death_date.getTime() > maxPosthumousDaysMs) {
-              throw new BusinessException(
-                BusinessErrorCode.INVALID_DATES,
-                'Anak kandung tidak dapat lahir lebih dari 300 hari setelah tanggal wafat ayah',
-                { fatherDeathDate: parent.death_date, childBirthDate: child.birth_date },
-                HttpStatus.UNPROCESSABLE_ENTITY,
-              );
-            }
-          }
-        }
+        this.validateParentChildChronology(parent, child);
       }
 
       // BR-08: end_date tidak boleh sebelum start_date
@@ -240,6 +242,8 @@ export class RelationshipsService {
       }
 
       // Validasi Union Asal (BR-13 & BR-14)
+      let resolvedPartnershipId = dto.partnershipId;
+
       if (dto.partnershipId) {
         const union = await tx.partnership.findUnique({
           where: { id: dto.partnershipId },
@@ -289,13 +293,104 @@ export class RelationshipsService {
         }
       }
 
+      // -----------------------------------------------------------------------
+      // Otomatisasi Penghubungan Pasangan (Ayah & Ibu Sekaligus) untuk Biological
+      // -----------------------------------------------------------------------
+      if (relationType === 'biological' && dto.autoLinkPartner !== false) {
+        let otherParentId: string | null = null;
+
+        if (resolvedPartnershipId) {
+          const union = await tx.partnership.findUnique({
+            where: { id: resolvedPartnershipId },
+          });
+          if (union && (union.person_a_id === dto.parentId || union.person_b_id === dto.parentId)) {
+            otherParentId = union.person_a_id === dto.parentId ? union.person_b_id : union.person_a_id;
+          }
+        } else {
+          // Cari pernikahan aktif dari parentId jika partnershipId tidak diberikan secara manual
+          const activePartnerships = await tx.partnership.findMany({
+            where: {
+              tree_id: treeId,
+              OR: [{ person_a_id: dto.parentId }, { person_b_id: dto.parentId }],
+              status: { in: ['married', 'partner'] },
+              end_date: null,
+            },
+          });
+
+          // Jika parent hanya memiliki tepat 1 pernikahan aktif, gunakan union tersebut
+          if (activePartnerships.length === 1) {
+            const activeUnion = activePartnerships[0];
+            resolvedPartnershipId = activeUnion.id;
+            otherParentId = activeUnion.person_a_id === dto.parentId ? activeUnion.person_b_id : activeUnion.person_a_id;
+          }
+        }
+
+        // Jika pasangan ditemukan, periksa dan buat relasi untuk pasangan (otherParent)
+        if (otherParentId) {
+          const existingOtherRelation = await tx.parentChild.findUnique({
+            where: {
+              parent_id_child_id: {
+                parent_id: otherParentId,
+                child_id: dto.childId,
+              },
+            },
+          });
+
+          if (!existingOtherRelation) {
+            const currentBioCount = await tx.parentChild.count({
+              where: {
+                child_id: dto.childId,
+                relation_type: 'biological',
+              },
+            });
+
+            // Hanya otomatis jika kuota 2 orang tua biological mencukupi
+            if (currentBioCount <= 1) {
+              const otherParent = await tx.person.findUnique({ where: { id: otherParentId } });
+              if (otherParent && otherParent.tree_id === treeId) {
+                // Deteksi siklus untuk otherParent
+                const otherCycle = await this.detectCycle(tx, treeId, otherParentId, dto.childId);
+                if (!otherCycle) {
+                  // Validasi conflicting relation (bukan pasangan dari anak)
+                  const conflicting = await tx.partnership.findFirst({
+                    where: {
+                      tree_id: treeId,
+                      OR: [
+                        { person_a_id: otherParentId, person_b_id: dto.childId },
+                        { person_a_id: dto.childId, person_b_id: otherParentId },
+                      ],
+                    },
+                  });
+
+                  if (!conflicting) {
+                    // Validasi kronologi untuk otherParent
+                    this.validateParentChildChronology(otherParent, child);
+
+                    // Buat relasi untuk otherParent
+                    await tx.parentChild.create({
+                      data: {
+                        tree_id: treeId,
+                        parent_id: otherParentId,
+                        child_id: dto.childId,
+                        relation_type: 'biological',
+                        partnership_id: resolvedPartnershipId,
+                      },
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       return tx.parentChild.create({
         data: {
           tree_id: treeId,
           parent_id: dto.parentId,
           child_id: dto.childId,
           relation_type: relationType,
-          partnership_id: dto.partnershipId,
+          partnership_id: resolvedPartnershipId,
           start_date: startDate,
           end_date: endDate,
         },

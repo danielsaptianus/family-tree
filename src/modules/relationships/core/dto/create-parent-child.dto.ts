@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsDateString,
+  IsBoolean,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ParentRelationType } from '@prisma/client';
@@ -36,6 +37,16 @@ export class CreateParentChildDto {
   @IsOptional()
   partnershipId?: string;
 
+  @ApiPropertyOptional({
+    example: true,
+    default: true,
+    description:
+      'Otomatis menghubungkan pasangan orang tua (ayah & ibu) jika relasi biological dan memiliki pernikahan (partnership)',
+  })
+  @IsBoolean()
+  @IsOptional()
+  autoLinkPartner?: boolean = true;
+
   @ApiPropertyOptional({ example: '2015-06-01', description: 'Tanggal mulai (adopsi/asuh)' })
   @IsDateString()
   @IsOptional()
@@ -46,3 +57,4 @@ export class CreateParentChildDto {
   @IsOptional()
   endDate?: string;
 }
+
