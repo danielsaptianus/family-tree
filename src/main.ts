@@ -53,22 +53,42 @@ async function bootstrap() {
   if (swaggerEnabled) {
     const config = new DocumentBuilder()
       .setTitle('Family Tree API')
-      .setDescription('Family Tree Backend')
-      .setVersion('1.0')
-      .addTag('Authentication', 'Authentication endpoints')
-      .addTag('Users', 'User management endpoints')
-      .addTag('Trees', 'Manajemen Pohon Silsilah Keluarga (FR-01 s.d. FR-03)')
+      .setDescription(
+        'Backend Family Tree Engine berbasis NestJS, PostgreSQL (btree_gist & Recursive CTE), dan D3.js Tree Generator siap saji untuk format Hierarchy & Graph.',
+      )
+      .setVersion('1.0.0')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          name: 'JWT',
+          description: 'Masukkan JWT token access',
+          in: 'header',
+        },
+        'JWT-auth',
+      )
+      .addTag('Authentication', 'Endpoint otentikasi login, register, dan profil user')
+      .addTag('Users', 'Manajemen data user dan role admin')
+      .addTag('Trees', 'Manajemen Pohon Silsilah Keluarga & Visualisasi D3 (FR-01 s.d. FR-03, FR-13 s.d. FR-16)')
       .addTag('Persons', 'Manajemen Individu / Person dalam Tree (FR-04 s.d. FR-07)')
       .addTag('Relationships', 'Manajemen Relasi Parent-Child & Partnerships (FR-08 s.d. FR-11)')
-      .addTag('Health', 'Health check endpoints')
+      .addTag('Health', 'Health check dan monitoring status koneksi database')
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
+
+    // Buka Swagger di /docs (NFR-10) dan /api/docs
     SwaggerModule.setup(swaggerPath, app, document, {
-      useGlobalPrefix: true,
+      useGlobalPrefix: false,
       swaggerOptions: {
         persistAuthorization: true,
-        defaultModelsExpandDepth: -1,
+      },
+    });
+    SwaggerModule.setup(`${apiPrefix}/${swaggerPath}`, app, document, {
+      useGlobalPrefix: false,
+      swaggerOptions: {
+        persistAuthorization: true,
       },
     });
   }

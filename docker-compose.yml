@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service dengan ekstensi btree_gist
+  db:
+    image: postgres:16-alpine
+    container_name: family_tree_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-root}
+      POSTGRES_DB: ${DATABASE_NAME:-family_tree_db}
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-postgres} -d ${DATABASE_NAME:-family_tree_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # NestJS Application Service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: family_tree_api
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-root}@db:5432/${DATABASE_NAME:-family_tree_db}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-supersecretjwtkeythatisatleast32characterslong}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      SWAGGER_ENABLED: "true"
+      SWAGGER_PATH: "docs"
+      CORS_ORIGIN: "*"
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,15 @@
+node_modules
+dist
+scratch
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+npm-debug.log
+yarn-error.log
+.DS_Store
+*.md
+coverage
+test
+tsconfig.tsbuildinfo
