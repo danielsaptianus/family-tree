@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Family Tree Visualizer — Silsilah Keluarga Interaktif D3.js</title>
+  <meta name="description" content="Aplikasi visualisasi pohon silsilah keluarga interaktif bertenaga D3.js, PostgreSQL Recursive CTE, dan NestJS. Mendukung format hirarki dan grafik jaringan.">
+  
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Custom Styling -->
+  <link rel="stylesheet" href="css/style.css">
+  
+  <!-- D3.js v7 Official CDN -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+  <!-- Ambient Glow Background -->
+  <div class="ambient-glow" aria-hidden="true"></div>
+
+  <div class="app-container">
+    <!-- Header / Navbar -->
+    <header class="top-navbar" id="main-header">
+      <div class="brand-section">
+        <div class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1>Silsilah Pohon Keluarga <span class="badge-version">v1.0.0</span></h1>
+        </div>
+      </div>
+
+      <!-- Controls Center -->
+      <div class="controls-center" id="controls-center">
+        <!-- Tree Selector -->
+        <select id="tree-select" class="select-control" aria-label="Pilih Pohon Silsilah" title="Pilih Pohon Silsilah">
+          <option value="">Memuat data pohon...</option>
+        </select>
+
+        <!-- Direction Selector -->
+        <select id="direction-select" class="select-control" aria-label="Arah Penelusuran Silsilah" title="Arah Penelusuran">
+          <option value="descendants">Keturunan (Descendants)</option>
+          <option value="ancestors">Leluhur (Ancestors)</option>
+        </select>
+
+        <!-- Segmented Mode Switcher -->
+        <div class="segmented-switch" role="group" aria-label="Format Tampilan">
+          <button id="btn-format-hierarchy" class="segment-btn active" title="Tampilan Hirarki Pohon">
+            <svg viewBox="0 0 24 24"><path d="M12 2v6m0 0l-4 4m4-4l4 4M4 16v6m16-6v6M2 16h4m12 0h4"/></svg>
+            Hierarchy
+          </button>
+          <button id="btn-format-graph" class="segment-btn" title="Tampilan Jaringan / Network Graph">
+            <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="15.5" y2="7.5"/><line x1="7.5" y1="8.5" x2="10.5" y2="15.5"/><line x1="16.5" y1="8.5" x2="13.5" y2="15.5"/></svg>
+            Graph
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Actions -->
+      <div class="right-actions">
+        <a href="/docs" target="_blank" class="btn-swagger" id="link-swagger-docs" title="Buka Dokumentasi Swagger API">
+          <span>API Docs</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <!-- Canvas Viewport -->
+    <main class="viewport-wrapper" id="main-viewport">
+      <!-- HUD Stats Bar -->
+      <div class="hud-stats-bar" id="hud-stats-bar">
+        <div class="stat-item">
+          <span>Total Anggota:</span>
+          <strong id="stat-total-nodes">-</strong>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span>Kedalaman Max:</span>
+          <strong id="stat-max-depth">-</strong>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span>Arah:</span>
+          <strong id="stat-direction">Keturunan</strong>
+        </div>
+      </div>
+
+      <!-- Floating Zoom Controls -->
+      <div class="hud-zoom-controls" id="hud-zoom-controls">
+        <button id="btn-zoom-in" class="zoom-btn" title="Perbesar (Zoom In)" aria-label="Perbesar">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="btn-zoom-out" class="zoom-btn" title="Perkecil (Zoom Out)" aria-label="Perkecil">
+          <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="btn-zoom-reset" class="zoom-btn" title="Pusatkan Layar (Fit Screen)" aria-label="Pusatkan">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 12h3m12 0h3M12 3v3m0 12v3"/></svg>
+        </button>
+      </div>
+
+      <!-- Legend -->
+      <div class="hud-legend" id="hud-legend">
+        <div class="legend-item">
+          <span class="legend-dot male"></span>
+          <span>Laki-laki</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot female"></span>
+          <span>Perempuan</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot partner"></span>
+          <span>Relasi Pasangan</span>
+        </div>
+      </div>
+
+      <!-- SVG Tree Rendering Canvas -->
+      <svg id="tree-canvas"></svg>
+
+      <!-- Loading State Overlay -->
+      <div class="loading-overlay" id="loading-overlay">
+        <div class="spinner"></div>
+        <p class="loading-text">Menyusun struktur silsilah...</p>
+      </div>
+    </main>
+
+    <!-- Side Inspector Drawer -->
+    <aside class="inspector-drawer" id="inspector-drawer" aria-label="Panel Detail Individu">
+      <div class="drawer-header">
+        <h2>Detail Anggota</h2>
+        <button id="btn-close-drawer" class="close-btn" title="Tutup Panel" aria-label="Tutup">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="drawer-content">
+        <!-- Overview -->
+        <div class="profile-overview">
+          <div class="profile-avatar" id="drawer-avatar">?</div>
+          <div class="profile-names">
+            <h3 id="drawer-name">Nama Anggota</h3>
+            <span class="gender-tag male" id="drawer-gender-tag">Laki-laki</span>
+          </div>
+        </div>
+
+        <!-- Vital Statistics -->
+        <div class="info-block">
+          <h4>Biodata</h4>
+          <div class="info-grid">
+            <div class="info-field">
+              <label>Tanggal Lahir</label>
+              <span id="drawer-birth">—</span>
+            </div>
+            <div class="info-field">
+              <label>Tanggal Wafat</label>
+              <span id="drawer-death">—</span>
+            </div>
+            <div class="info-field">
+              <label>Status</label>
+              <span id="drawer-living">Masih Hidup</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="info-block">
+          <h4>Catatan</h4>
+          <p id="drawer-notes" style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4;">Tidak ada catatan.</p>
+        </div>
+
+        <!-- Spouses / Partnerships -->
+        <div class="info-block">
+          <h4>Pasangan (Spouses)</h4>
+          <div class="relation-chip-list" id="drawer-partners-list"></div>
+        </div>
+
+        <!-- Children -->
+        <div class="info-block">
+          <h4>Keturunan (Anak)</h4>
+          <div class="relation-chip-list" id="drawer-children-list"></div>
+        </div>
+
+        <!-- Actions -->
+        <div class="drawer-actions">
+          <button id="btn-focus-person" class="btn-action-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+            Jadikan Titik Pusat (Root)
+          </button>
+          <button id="btn-view-cousins" class="btn-action-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Cari Sepupu (Cousins)
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Main Application Script (ES Module) -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

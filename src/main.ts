@@ -2,6 +2,8 @@ import { ValidationPipe, VersioningType, ClassSerializerInterceptor } from '@nes
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import * as express from 'express';
+import { join } from 'path';
 import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 
@@ -9,6 +11,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   const configService = app.get(ConfigService);
+
+  // Serve static files from public directory (Frontend Native)
+  app.use(express.static(join(process.cwd(), 'public')));
 
   // Get configurations
   const swaggerEnabled = configService.get<boolean>('swagger.enabled');
