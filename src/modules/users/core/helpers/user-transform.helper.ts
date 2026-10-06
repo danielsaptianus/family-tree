@@ -1,5 +1,6 @@
 import { User, Position, PositionPermission, Permission } from '@prisma/client';
-import { UserEntity } from '../entities/user.entity';
+import { UserResponseDto } from '../dto/user-response.dto';
+
 type UserWithRelations = User & {
   position?: Position & {
     position_permissions?: (PositionPermission & {
@@ -9,12 +10,12 @@ type UserWithRelations = User & {
 };
 
 export class UserTransformHelper {
-  static toEntity(user: UserWithRelations): UserEntity {
+  static toDto(user: UserWithRelations): UserResponseDto {
     const permissions = user.position?.position_permissions?.map(
       (pp) => pp.permission.name,
     ) || [];
 
-    return new UserEntity({
+    return new UserResponseDto({
       ...user,
       permissions,
       position: user.position ? {
@@ -25,7 +26,7 @@ export class UserTransformHelper {
     });
   }
 
-  static toEntities(users: UserWithRelations[]): UserEntity[] {
-    return users.map((user) => this.toEntity(user));
+  static toDtos(users: UserWithRelations[]): UserResponseDto[] {
+    return users.map((user) => this.toDto(user));
   }
 }

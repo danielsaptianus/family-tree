@@ -11,7 +11,7 @@ import { UpdateUserDto } from './core/dto/update-user.dto';
 import { ChangePositionDto } from './core/dto/change-position.dto';
 import { ManagePermissionsDto } from './core/dto/manage-permissions.dto';
 import { UserQueryDto } from './core/dto/user-query.dto';
-import { UserEntity } from './core/entities/user.entity';
+import { UserResponseDto } from './core/dto/user-response.dto';
 import { UserTransformHelper } from './core/helpers/user-transform.helper';
 import { PaginatedResponseDto } from '@common/dto/pagination.dto';
 
@@ -19,7 +19,7 @@ import { PaginatedResponseDto } from '@common/dto/pagination.dto';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async create(createUserDto: CreateUserDto): Promise<UserEntity> {
+  async create(createUserDto: CreateUserDto): Promise<UserResponseDto> {
     const { email, password, position_id, auto_create_person, ...userData } = createUserDto;
 
     // Check if email already exists
@@ -105,10 +105,10 @@ export class UsersService {
       },
     });
 
-    return UserTransformHelper.toEntity(user);
+    return UserTransformHelper.toDto(user);
   }
 
-  async findAll(query: UserQueryDto): Promise<PaginatedResponseDto<UserEntity>> {
+  async findAll(query: UserQueryDto): Promise<PaginatedResponseDto<UserResponseDto>> {
     const { page = 1, limit = 10, search, is_active, position_id } = query;
     const skip = (page - 1) * limit;
 
@@ -160,7 +160,7 @@ export class UsersService {
     }
 
     return {
-      data: UserTransformHelper.toEntities(users),
+      data: UserTransformHelper.toDtos(users),
       meta: {
         total,
         page,
@@ -170,7 +170,7 @@ export class UsersService {
     };
   }
 
-  async findOne(id: number): Promise<UserEntity> {
+  async findOne(id: number): Promise<UserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: { id, deleted_at: null },
       include: {
@@ -190,10 +190,10 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    return UserTransformHelper.toEntity(user);
+    return UserTransformHelper.toDto(user);
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto): Promise<UserEntity> {
+  async update(id: number, updateUserDto: UpdateUserDto): Promise<UserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: { id, deleted_at: null },
     });
@@ -297,7 +297,7 @@ export class UsersService {
       },
     });
 
-    return UserTransformHelper.toEntity(updatedUser);
+    return UserTransformHelper.toDto(updatedUser);
   }
 
   async remove(id: number): Promise<void> {
@@ -316,7 +316,7 @@ export class UsersService {
     });
   }
 
-  async changePosition(id: number, changePositionDto: ChangePositionDto): Promise<UserEntity> {
+  async changePosition(id: number, changePositionDto: ChangePositionDto): Promise<UserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: { id, deleted_at: null },
     });
@@ -350,13 +350,13 @@ export class UsersService {
       },
     });
 
-    return UserTransformHelper.toEntity(updatedUser);
+    return UserTransformHelper.toDto(updatedUser);
   }
 
   async assignPermissions(
     userId: number,
     managePermissionsDto: ManagePermissionsDto,
-  ): Promise<UserEntity> {
+  ): Promise<UserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deleted_at: null },
       include: { position: true },
@@ -406,7 +406,7 @@ export class UsersService {
   async revokePermissions(
     userId: number,
     managePermissionsDto: ManagePermissionsDto,
-  ): Promise<UserEntity> {
+  ): Promise<UserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deleted_at: null },
       include: { position: true },

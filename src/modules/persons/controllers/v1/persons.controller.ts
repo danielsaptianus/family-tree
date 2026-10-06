@@ -16,7 +16,7 @@ import { PersonsService } from '../../persons.service';
 import { CreatePersonDto } from '../../core/dto/create-person.dto';
 import { UpdatePersonDto } from '../../core/dto/update-person.dto';
 import { PersonQueryDto } from '../../core/dto/person-query.dto';
-import { PersonEntity } from '../../core/entities/person.entity';
+import { PersonResponseDto } from '../../core/dto/person-response.dto';
 import { Public } from '@common/decorators/public.decorator';
 import { ApiSuccessResponse } from '@common/decorators/api-response.decorator';
 import { PaginatedResponseDto } from '@common/dto/pagination.dto';
@@ -31,7 +31,7 @@ export class PersonsController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Menambah person ke pohon silsilah (FR-04)' })
   @ApiParam({ name: 'treeId', type: 'string', format: 'uuid' })
-  @ApiSuccessResponse(PersonEntity)
+  @ApiSuccessResponse(PersonResponseDto)
   async create(
     @Param('treeId', new ParseUUIDPipe({ version: '4' })) treeId: string,
     @Body() createPersonDto: CreatePersonDto,
@@ -42,7 +42,7 @@ export class PersonsController {
   @Get()
   @ApiOperation({ summary: 'Mencari atau melihat daftar person dalam tree (FR-07)' })
   @ApiParam({ name: 'treeId', type: 'string', format: 'uuid' })
-  @ApiSuccessResponse(PaginatedResponseDto<PersonEntity>)
+  @ApiSuccessResponse(PaginatedResponseDto<PersonResponseDto>)
   async findAll(
     @Param('treeId', new ParseUUIDPipe({ version: '4' })) treeId: string,
     @Query() query: PersonQueryDto,
@@ -54,7 +54,7 @@ export class PersonsController {
   @ApiOperation({ summary: 'Melihat detail person beserta relasi langsung orang tua, anak, dan pasangan (FR-05)' })
   @ApiParam({ name: 'treeId', type: 'string', format: 'uuid' })
   @ApiParam({ name: 'personId', type: 'string', format: 'uuid' })
-  @ApiSuccessResponse(PersonEntity)
+  @ApiSuccessResponse(PersonResponseDto)
   async findOne(
     @Param('treeId', new ParseUUIDPipe({ version: '4' })) treeId: string,
     @Param('personId', new ParseUUIDPipe({ version: '4' })) personId: string,
@@ -66,7 +66,7 @@ export class PersonsController {
   @ApiOperation({ summary: 'Mengubah data person (FR-06)' })
   @ApiParam({ name: 'treeId', type: 'string', format: 'uuid' })
   @ApiParam({ name: 'personId', type: 'string', format: 'uuid' })
-  @ApiSuccessResponse(PersonEntity)
+  @ApiSuccessResponse(PersonResponseDto)
   async update(
     @Param('treeId', new ParseUUIDPipe({ version: '4' })) treeId: string,
     @Param('personId', new ParseUUIDPipe({ version: '4' })) personId: string,

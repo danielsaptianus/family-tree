@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { GenderType } from '@prisma/client';
 
-export class PersonEntity {
+export class PersonResponseDto {
   @ApiProperty({ example: 'a1b28400-e29b-41d4-a716-446655440000' })
   id: string;
 

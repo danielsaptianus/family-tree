@@ -16,7 +16,7 @@ import { TreesService } from '../../trees.service';
 import { CreateTreeDto } from '../../core/dto/create-tree.dto';
 import { UpdateTreeDto } from '../../core/dto/update-tree.dto';
 import { TreeQueryDto } from '../../core/dto/tree-query.dto';
-import { TreeEntity } from '../../core/entities/tree.entity';
+import { TreeResponseDto } from '../../core/dto/tree-response.dto';
 import { ScopedViewQueryDto } from '../../core/dto/scoped-view-query.dto';
 import { RenderTreeQueryDto } from '../../core/dto/render-tree-query.dto';
 import { GetUser } from '@common/decorators/get-user.decorator';
@@ -34,14 +34,14 @@ export class TreesController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Membuat pohon silsilah keluarga baru (FR-01)' })
-  @ApiSuccessResponse(TreeEntity)
+  @ApiSuccessResponse(TreeResponseDto)
   async create(@Body() createTreeDto: CreateTreeDto) {
     return this.treesService.create(createTreeDto);
   }
 
   @Get()
   @ApiOperation({ summary: 'Melihat daftar pohon keluarga dengan pagination (FR-02)' })
-  @ApiSuccessResponse(PaginatedResponseDto<TreeEntity>)
+  @ApiSuccessResponse(PaginatedResponseDto<TreeResponseDto>)
   async findAll(@Query() query: TreeQueryDto) {
     return this.treesService.findAll(query);
   }
@@ -49,7 +49,7 @@ export class TreesController {
   @Get(':treeId')
   @ApiOperation({ summary: 'Melihat detail pohon keluarga beserta statistik (FR-02)' })
   @ApiParam({ name: 'treeId', type: 'string', format: 'uuid' })
-  @ApiSuccessResponse(TreeEntity)
+  @ApiSuccessResponse(TreeResponseDto)
   async findOne(@Param('treeId', new ParseUUIDPipe({ version: '4' })) treeId: string) {
     return this.treesService.findOne(treeId);
   }
@@ -57,7 +57,7 @@ export class TreesController {
   @Patch(':treeId')
   @ApiOperation({ summary: 'Mengubah data pohon keluarga (FR-03)' })
   @ApiParam({ name: 'treeId', type: 'string', format: 'uuid' })
-  @ApiSuccessResponse(TreeEntity)
+  @ApiSuccessResponse(TreeResponseDto)
   async update(
     @Param('treeId', new ParseUUIDPipe({ version: '4' })) treeId: string,
     @Body() updateTreeDto: UpdateTreeDto,
