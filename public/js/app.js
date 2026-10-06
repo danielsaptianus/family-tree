@@ -137,25 +137,27 @@ async function loadTrees() {
   showLoading(true);
   try {
     const trees = await FamilyTreeAPI.getTrees();
-    state.trees = trees;
+    state.trees = Array.isArray(trees) ? trees : [];
 
     elements.treeSelect.innerHTML = '';
-    if (trees.length === 0) {
-      elements.treeSelect.innerHTML = '<option value="">(Belum ada tree)</option>';
+    if (state.trees.length === 0) {
+      elements.treeSelect.innerHTML = '<option value="">(Belum ada data pohon)</option>';
       return;
     }
 
-    trees.forEach((tree, idx) => {
+    state.trees.forEach((tree) => {
       const opt = document.createElement('option');
       opt.value = tree.id;
-      opt.textContent = `${tree.name} (${tree._count?.persons || 0} anggota)`;
+      const count = tree._count?.persons ?? '?';
+      opt.textContent = `${tree.name} (${count} anggota)`;
       elements.treeSelect.appendChild(opt);
     });
 
-    state.selectedTreeId = trees[0].id;
+    state.selectedTreeId = state.trees[0].id;
     await loadAndRenderTree();
   } catch (err) {
     console.error('Error loading trees:', err);
+    elements.treeSelect.innerHTML = '<option value="">Gagal memuat pohon</option>';
   } finally {
     showLoading(false);
   }
@@ -183,12 +185,15 @@ async function loadAndRenderTree() {
       state.activeRenderer = new D3HierarchyRenderer(elements.svgCanvas, {
         onNodeClick: (person) => openPersonInspector(person),
       });
-      state.activeRenderer.render(renderPayload.data);
+      // Backend returns either { meta, data: { ...root } } or root directly
+      const treeRoot = renderPayload.data || renderPayload;
+      state.activeRenderer.render(treeRoot);
     } else {
       state.activeRenderer = new D3GraphRenderer(elements.svgCanvas, {
         onNodeClick: (person) => openPersonInspector(person),
       });
-      state.activeRenderer.render(renderPayload.data);
+      // Backend returns { meta, nodes: [...], links: [...] }
+      state.activeRenderer.render(renderPayload);
     }
   } catch (err) {
     console.error('Error rendering tree:', err);
@@ -203,8 +208,8 @@ async function loadAndRenderTree() {
  */
 function updateStats(meta) {
   if (!meta) return;
-  elements.statNodes.textContent = meta.totalNodes ?? '-';
-  elements.statDepth.textContent = meta.maxDepth ?? 'Semua';
+  elements.statNodes.textContent = meta.nodeCount ?? meta.totalNodes ?? '-';
+  elements.statDepth.textContent = meta.depth ?? meta.maxDepth ?? 'Semua';
   elements.statDirection.textContent = meta.direction === 'ancestors' ? 'Leluhur (Ke Atas)' : 'Keturunan (Ke Bawah)';
 }
 
@@ -215,29 +220,57 @@ async function openPersonInspector(person) {
   state.selectedPerson = person;
   elements.drawer.classList.add('open');
 
-  // Fill Basic Info
-  const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
-  elements.drawerName.textContent = fullName || 'Tanpa Nama';
-  elements.drawerAvatar.textContent = person.firstName ? person.firstName.charAt(0).toUpperCase() : '?';
+  const fullName = person.name || `${person.firstName || ''} ${person.lastName || ''}`.trim() || 'Tanpa Nama';
+  elements.drawerName.textContent = fullName;
+  elements.drawerAvatar.textContent = fullName.charAt(0).toUpperCase();
 
-  const isMale = (person.gender || 'male') === 'male';
-  elements.drawerGenderTag.textContent = isMale ? 'Laki-laki' : 'Perempuan';
-  elements.drawerGenderTag.className = `gender-tag ${isMale ? 'male' : 'female'}`;
+  const gender = (person.gender || 'unknown').toLowerCase();
+  if (gender === 'male') {
+    elements.drawerGenderTag.textContent = 'Laki-laki';
+    elements.drawerGenderTag.className = 'gender-tag male';
+  } else if (gender === 'female') {
+    elements.drawerGenderTag.textContent = 'Perempuan';
+    elements.drawerGenderTag.className = 'gender-tag female';
+  } else {
+    elements.drawerGenderTag.textContent = 'Tidak Disebutkan';
+    elements.drawerGenderTag.className = 'gender-tag';
+  }
 
   elements.drawerBirth.textContent = person.birthDate ? new Date(person.birthDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
   elements.drawerDeath.textContent = person.deathDate ? new Date(person.deathDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
-  elements.drawerLiving.textContent = person.isLiving ? '✅ Masih Hidup' : '🕊️ Wafat';
-  elements.drawerNotes.textContent = person.notes || 'Tidak ada catatan silsilah.';
+  elements.drawerLiving.textContent = person.isLiving !== false ? '✅ Masih Hidup' : '🕊️ Wafat';
+  elements.drawerNotes.textContent = person.notes || 'Tidak ada catatan silsilah khusus.';
 
-  // Partners List
+  // Spouses / Unions List
   elements.drawerPartnersList.innerHTML = '';
-  if (person.partners && person.partners.length > 0) {
-    person.partners.forEach(partner => {
+  const partners = [];
+  if (person.unions && person.unions.length > 0) {
+    person.unions.forEach(u => {
+      partners.push({
+        id: u.partner?.id,
+        name: u.partner?.name,
+        type: u.status || 'Menikah',
+        gender: u.partner?.gender,
+      });
+    });
+  } else if (person.partners && person.partners.length > 0) {
+    person.partners.forEach(p => {
+      partners.push({
+        id: p.id,
+        name: p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim(),
+        type: p.status || p.type || 'Menikah',
+        gender: p.gender,
+      });
+    });
+  }
+
+  if (partners.length > 0) {
+    partners.forEach(partner => {
       const chip = document.createElement('div');
       chip.className = 'relation-chip';
       chip.innerHTML = `
-        <span>💍 ${partner.firstName || ''} ${partner.lastName || ''}</span>
-        <span class="chip-tag">${partner.type || 'Pasangan'}</span>
+        <span>💍 ${partner.name || 'Pasangan'}</span>
+        <span class="chip-tag">${partner.type}</span>
       `;
       chip.addEventListener('click', () => openPersonInspector(partner));
       elements.drawerPartnersList.appendChild(chip);
@@ -250,10 +283,11 @@ async function openPersonInspector(person) {
   elements.drawerChildrenList.innerHTML = '';
   if (person.children && person.children.length > 0) {
     person.children.forEach(child => {
+      const childName = child.name || `${child.firstName || ''} ${child.lastName || ''}`.trim() || 'Anak';
       const chip = document.createElement('div');
       chip.className = 'relation-chip';
       chip.innerHTML = `
-        <span>👶 ${child.firstName || ''} ${child.lastName || ''}</span>
+        <span>👶 ${childName}</span>
         <span class="chip-tag">${child.relationType || 'Anak'}</span>
       `;
       chip.addEventListener('click', () => openPersonInspector(child));
@@ -276,7 +310,10 @@ function renderCousinsModal(cousins) {
     alert('Tidak ditemukan sepupu untuk anggota ini.');
     return;
   }
-  const names = cousins.map(c => `• ${c.firstName} ${c.lastName || ''} (${c.gender === 'male' ? 'L' : 'P'})`).join('\n');
+  const names = cousins.map(c => {
+    const cName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim();
+    return `• ${cName} (${c.gender === 'female' ? 'Perempuan' : 'Laki-laki'})`;
+  }).join('\n');
   alert(`Daftar Sepupu (${cousins.length} orang):\n\n${names}`);
 }
 

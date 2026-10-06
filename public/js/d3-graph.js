@@ -25,7 +25,7 @@ export class D3GraphRenderer {
     defs.append('marker')
       .attr('id', 'graph-arrow')
       .attr('viewBox', '0 -5 10 10')
-      .attr('refX', 28)
+      .attr('refX', 30)
       .attr('refY', 0)
       .attr('markerWidth', 6)
       .attr('markerHeight', 6)
@@ -45,8 +45,15 @@ export class D3GraphRenderer {
     this.svg.call(this.zoom).on('dblclick.zoom', null);
   }
 
+  getPersonName(d) {
+    if (!d) return 'Tanpa Nama';
+    if (d.name) return d.name;
+    const full = `${d.firstName || ''} ${d.lastName || ''}`.trim();
+    return full || 'Tanpa Nama';
+  }
+
   render(graphData) {
-    if (!graphData || !graphData.nodes) return;
+    if (!graphData) return;
 
     if (this.simulation) {
       this.simulation.stop();
@@ -56,16 +63,21 @@ export class D3GraphRenderer {
     const width = parent.clientWidth;
     const height = parent.clientHeight;
 
-    // Clone data to avoid mutating original
-    const nodes = graphData.nodes.map(d => Object.assign({}, d));
-    const links = graphData.links.map(d => Object.assign({}, d));
+    const rawNodes = graphData.nodes || graphData.data?.nodes || [];
+    const rawLinks = graphData.links || graphData.data?.links || [];
+
+    if (rawNodes.length === 0) return;
+
+    // Clone data
+    const nodes = rawNodes.map(d => Object.assign({}, d));
+    const links = rawLinks.map(d => Object.assign({}, d));
 
     // Force Simulation Setup
     this.simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'partnership' ? 90 : 140))
+      .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'partnership' ? 95 : 150))
       .force('charge', d3.forceManyBody().strength(-550))
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(48));
+      .force('collision', d3.forceCollide().radius(50));
 
     // Links Rendering
     const link = this.container.selectAll('.graph-link')
@@ -89,8 +101,16 @@ export class D3GraphRenderer {
     // Node Circle
     node.append('circle')
       .attr('r', 24)
-      .attr('fill', d => d.gender === 'female' ? '#1f1325' : '#0f1f2e')
-      .attr('stroke', d => d.gender === 'female' ? '#f43f5e' : '#06b6d4')
+      .attr('fill', d => {
+        if (d.gender === 'female') return '#1f1325';
+        if (d.gender === 'male') return '#0f1f2e';
+        return '#191830';
+      })
+      .attr('stroke', d => {
+        if (d.gender === 'female') return '#f43f5e';
+        if (d.gender === 'male') return '#06b6d4';
+        return '#818cf8';
+      })
       .attr('stroke-width', 2.5)
       .attr('filter', 'drop-shadow(0 4px 10px rgba(0,0,0,0.5))');
 
@@ -101,15 +121,18 @@ export class D3GraphRenderer {
       .attr('fill', '#ffffff')
       .attr('font-size', '13px')
       .attr('font-weight', '700')
-      .text(d => (d.firstName ? d.firstName.charAt(0).toUpperCase() : '?'));
+      .text(d => this.getPersonName(d).charAt(0).toUpperCase());
 
     // Label below node
     node.append('text')
       .attr('class', 'node-name')
       .attr('text-anchor', 'middle')
-      .attr('y', 38)
+      .attr('y', 40)
       .attr('font-size', '12px')
-      .text(d => `${d.firstName || ''} ${d.lastName ? d.lastName.charAt(0) + '.' : ''}`.trim());
+      .text(d => {
+        const full = this.getPersonName(d);
+        return full.length > 18 ? full.substring(0, 16) + '..' : full;
+      });
 
     // Simulation Tick
     this.simulation.on('tick', () => {
@@ -123,7 +146,6 @@ export class D3GraphRenderer {
         .attr('transform', d => `translate(${d.x},${d.y})`);
     });
 
-    // Fit view after small stabilization
     setTimeout(() => {
       this.fitToScreen();
     }, 450);

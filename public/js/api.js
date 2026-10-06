@@ -14,7 +14,15 @@ export const FamilyTreeAPI = {
       const response = await fetch(`${API_BASE}/trees`);
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       const json = await response.json();
-      return json.data || [];
+      
+      // Response structure: { statusCode: 200, data: { data: [...], meta: {...} } }
+      if (json.data && Array.isArray(json.data.data)) {
+        return json.data.data;
+      }
+      if (Array.isArray(json.data)) {
+        return json.data;
+      }
+      return [];
     } catch (err) {
       console.error('Failed to fetch trees:', err);
       throw err;
@@ -50,24 +58,6 @@ export const FamilyTreeAPI = {
       return json.data;
     } catch (err) {
       console.error('Failed to render tree:', err);
-      throw err;
-    }
-  },
-
-  /**
-   * Fetch focused My-View
-   */
-  async getMyView(treeId, personId = null) {
-    const params = new URLSearchParams();
-    if (personId) params.append('personId', personId);
-
-    try {
-      const response = await fetch(`${API_BASE}/trees/${treeId}/my-view?${params.toString()}`);
-      if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-      const json = await response.json();
-      return json.data;
-    } catch (err) {
-      console.error('Failed to fetch my-view:', err);
       throw err;
     }
   },

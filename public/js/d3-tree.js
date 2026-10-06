@@ -7,10 +7,10 @@ export class D3HierarchyRenderer {
   constructor(svgElement, options = {}) {
     this.svg = d3.select(svgElement);
     this.options = Object.assign({
-      cardWidth: 200,
-      cardHeight: 84,
-      nodeSpacingX: 240,
-      nodeSpacingY: 130,
+      cardWidth: 230,
+      cardHeight: 90,
+      nodeSpacingX: 270,
+      nodeSpacingY: 150,
       onNodeClick: () => {},
     }, options);
 
@@ -23,7 +23,6 @@ export class D3HierarchyRenderer {
   init() {
     this.svg.selectAll('*').remove();
 
-    // Define gradients and filters
     const defs = this.svg.append('defs');
 
     // Male gradient
@@ -40,20 +39,15 @@ export class D3HierarchyRenderer {
     femaleGrad.append('stop').attr('offset', '0%').attr('stop-color', '#f43f5e');
     femaleGrad.append('stop').attr('offset', '100%').attr('stop-color', '#d946ef');
 
-    // Glow filter
-    const filter = defs.append('filter')
-      .attr('id', 'card-glow')
-      .attr('x', '-20%').attr('y', '-20%').attr('width', '140%').attr('height', '140%');
-    filter.append('feDropShadow')
-      .attr('dx', '0').attr('dy', '6')
-      .attr('stdDeviation', '8')
-      .attr('flood-color', '#000000')
-      .attr('flood-opacity', '0.5');
+    // Neutral / Unknown gradient
+    const neutralGrad = defs.append('linearGradient')
+      .attr('id', 'neutral-grad')
+      .attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '100%');
+    neutralGrad.append('stop').attr('offset', '0%').attr('stop-color', '#6366f1');
+    neutralGrad.append('stop').attr('offset', '100%').attr('stop-color', '#8b5cf6');
 
-    // Container for zooming
     this.container = this.svg.append('g').attr('class', 'tree-container');
 
-    // Zoom behavior
     this.zoom = d3.zoom()
       .scaleExtent([0.15, 3])
       .on('zoom', (event) => {
@@ -63,15 +57,53 @@ export class D3HierarchyRenderer {
     this.svg.call(this.zoom).on('dblclick.zoom', null);
   }
 
+  getPersonName(d) {
+    if (!d) return 'Tanpa Nama';
+    if (d.name) return d.name;
+    const full = `${d.firstName || ''} ${d.lastName || ''}`.trim();
+    return full || 'Tanpa Nama';
+  }
+
+  getGender(d) {
+    if (!d || !d.gender) return 'unknown';
+    return d.gender.toLowerCase();
+  }
+
+  getAvatarGradient(gender) {
+    if (gender === 'female') return 'url(#female-grad)';
+    if (gender === 'male') return 'url(#male-grad)';
+    return 'url(#neutral-grad)';
+  }
+
+  getPartnerInfo(d) {
+    if (d.unions && d.unions.length > 0) {
+      const u = d.unions[0];
+      return {
+        name: u.partner?.name || 'Pasangan',
+        status: u.status || 'married',
+      };
+    }
+    if (d.partners && d.partners.length > 0) {
+      const p = d.partners[0];
+      return {
+        name: p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Pasangan',
+        status: p.status || p.type || 'married',
+      };
+    }
+    return null;
+  }
+
   render(data) {
     if (!data) return;
 
-    this.rawTreeData = data;
-    this.root = d3.hierarchy(data, d => d.children);
+    // Handle nested data wrappers if any
+    const rootData = data.data || data;
+
+    this.rawTreeData = rootData;
+    this.root = d3.hierarchy(rootData, d => d.children);
     this.root.x0 = 0;
     this.root.y0 = 0;
 
-    // Tree layout
     this.treeLayout = d3.tree()
       .nodeSize([this.options.nodeSpacingX, this.options.nodeSpacingY]);
 
@@ -93,22 +125,19 @@ export class D3HierarchyRenderer {
     const link = this.container.selectAll('path.tree-link')
       .data(links, d => d.target.data.id);
 
-    // Enter Links
     const linkEnter = link.enter()
       .insert('path', 'g')
       .attr('class', 'tree-link')
-      .attr('d', d => {
+      .attr('d', () => {
         const o = { x: source.x0 || 0, y: source.y0 || 0 };
         return this.diagonal({ source: o, target: o });
       });
 
-    // Update Links
     link.merge(linkEnter).transition().duration(duration)
       .attr('d', d => this.diagonal(d));
 
-    // Exit Links
     link.exit().transition().duration(duration)
-      .attr('d', d => {
+      .attr('d', () => {
         const o = { x: source.x, y: source.y };
         return this.diagonal({ source: o, target: o });
       })
@@ -120,13 +149,11 @@ export class D3HierarchyRenderer {
     const node = this.container.selectAll('g.node-group')
       .data(nodes, d => d.data.id);
 
-    // Enter Nodes
     const nodeEnter = node.enter()
       .append('g')
       .attr('class', 'node-group')
-      .attr('transform', d => `translate(${source.x0 || 0},${source.y0 || 0})`);
+      .attr('transform', () => `translate(${source.x0 || 0},${source.y0 || 0})`);
 
-    // Outer Card
     const card = nodeEnter.append('g')
       .attr('class', 'node-card')
       .on('click', (event, d) => {
@@ -135,7 +162,7 @@ export class D3HierarchyRenderer {
         this.options.onNodeClick(d.data);
       });
 
-    // Card background
+    // Background Card
     card.append('rect')
       .attr('class', 'node-bg')
       .attr('x', -cardWidth / 2)
@@ -147,8 +174,8 @@ export class D3HierarchyRenderer {
 
     // Gender Left Indicator Strip
     card.append('rect')
-      .attr('class', d => `gender-indicator ${d.data.gender || 'male'}`)
-      .attr('x', -cardWidth / 2 + 3)
+      .attr('class', d => `gender-indicator ${this.getGender(d.data)}`)
+      .attr('x', -cardWidth / 2 + 4)
       .attr('y', -cardHeight / 2 + 10)
       .attr('width', 4.5)
       .attr('height', cardHeight - 20)
@@ -156,56 +183,56 @@ export class D3HierarchyRenderer {
 
     // Avatar Circle
     const avatarGroup = card.append('g')
-      .attr('transform', `translate(${-cardWidth / 2 + 28}, 0)`);
+      .attr('transform', `translate(${-cardWidth / 2 + 32}, 0)`);
 
     avatarGroup.append('circle')
-      .attr('r', 18)
-      .attr('fill', d => d.data.gender === 'female' ? 'url(#female-grad)' : 'url(#male-grad)')
-      .attr('stroke', 'rgba(255,255,255,0.2)')
+      .attr('r', 20)
+      .attr('fill', d => this.getAvatarGradient(this.getGender(d.data)))
+      .attr('stroke', 'rgba(255,255,255,0.25)')
       .attr('stroke-width', 1.5);
 
     avatarGroup.append('text')
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'central')
       .attr('fill', '#ffffff')
-      .attr('font-size', '12px')
+      .attr('font-size', '13px')
       .attr('font-weight', '700')
-      .text(d => (d.data.firstName ? d.data.firstName.charAt(0).toUpperCase() : '?'));
+      .text(d => this.getPersonName(d.data).charAt(0).toUpperCase());
 
     // Person Name
     card.append('text')
       .attr('class', 'node-name')
-      .attr('x', -cardWidth / 2 + 56)
-      .attr('y', -10)
+      .attr('x', -cardWidth / 2 + 62)
+      .attr('y', -12)
       .text(d => {
-        const full = `${d.data.firstName || ''} ${d.data.lastName || ''}`.trim();
-        return full.length > 15 ? full.substring(0, 13) + '...' : full;
+        const full = this.getPersonName(d.data);
+        return full.length > 17 ? full.substring(0, 15) + '...' : full;
       });
 
     // Sub-text: Years & Status
     card.append('text')
       .attr('class', 'node-dates')
-      .attr('x', -cardWidth / 2 + 56)
-      .attr('y', 10)
+      .attr('x', -cardWidth / 2 + 62)
+      .attr('y', 8)
       .text(d => {
-        const bYear = d.data.birthDate ? new Date(d.data.birthDate).getFullYear() : '?';
-        const dYear = d.data.deathDate ? new Date(d.data.deathDate).getFullYear() : (d.data.isLiving ? 'Sekarang' : '?');
+        const bYear = d.data.birthDate ? new Date(d.data.birthDate).getFullYear() : '—';
+        const dYear = d.data.deathDate ? new Date(d.data.deathDate).getFullYear() : (d.data.isLiving !== false ? 'Sekarang' : '—');
         return `${bYear} — ${dYear}`;
       });
 
     // Partner badge if exists
-    card.each(function(d) {
-      if (d.data.partners && d.data.partners.length > 0) {
-        const partner = d.data.partners[0];
-        const g = d3.select(this);
+    card.each((d, i, nodesList) => {
+      const partner = this.getPartnerInfo(d.data);
+      if (partner) {
+        const g = d3.select(nodesList[i]);
         const pBadge = g.append('g')
-          .attr('transform', `translate(${-cardWidth / 2 + 56}, 26)`);
+          .attr('transform', `translate(${-cardWidth / 2 + 62}, 24)`);
 
         pBadge.append('rect')
           .attr('fill', 'rgba(244, 63, 94, 0.15)')
-          .attr('stroke', 'rgba(244, 63, 94, 0.3)')
+          .attr('stroke', 'rgba(244, 63, 94, 0.35)')
           .attr('rx', 4)
-          .attr('width', cardWidth - 68)
+          .attr('width', cardWidth - 72)
           .attr('height', 16);
 
         pBadge.append('text')
@@ -214,11 +241,11 @@ export class D3HierarchyRenderer {
           .attr('fill', '#fb7185')
           .attr('font-size', '9.5px')
           .attr('font-weight', '600')
-          .text(`💍 ${partner.firstName || ''} ${partner.lastName || ''}`.trim());
+          .text(`💍 ${partner.name.length > 18 ? partner.name.substring(0, 16) + '..' : partner.name}`);
       }
     });
 
-    // Collapse / Expand Toggle Button (if has children)
+    // Collapse / Expand Toggle
     const toggle = nodeEnter.append('g')
       .attr('class', 'expand-toggle')
       .attr('transform', `translate(0, ${cardHeight / 2})`)
@@ -233,7 +260,7 @@ export class D3HierarchyRenderer {
     toggle.append('text')
       .text(d => (d.children || d._children ? (d.children ? '−' : '+') : ''));
 
-    // UPDATE Node Positions
+    // UPDATE
     const nodeUpdate = node.merge(nodeEnter).transition().duration(duration)
       .attr('transform', d => `translate(${d.x},${d.y})`);
 
@@ -242,21 +269,19 @@ export class D3HierarchyRenderer {
       .select('text')
       .text(d => (d.children ? '−' : '+'));
 
-    // EXIT Nodes
+    // EXIT
     const nodeExit = node.exit().transition().duration(duration)
-      .attr('transform', d => `translate(${source.x},${source.y})`)
+      .attr('transform', () => `translate(${source.x},${source.y})`)
       .remove();
 
     nodeExit.select('.node-card').style('opacity', 0);
 
-    // Stash current positions for transitions
     nodes.forEach(d => {
       d.x0 = d.x;
       d.y0 = d.y;
     });
   }
 
-  // Smooth cubic bezier connector
   diagonal(d) {
     const { source, target } = d;
     const cardH = this.options.cardHeight;
@@ -299,14 +324,14 @@ export class D3HierarchyRenderer {
     const midY = bounds.y + bounds.height / 2;
 
     const scale = Math.min(
-      (fullWidth * 0.85) / bounds.width,
-      (fullHeight * 0.85) / bounds.height,
-      1.2
+      (fullWidth * 0.82) / bounds.width,
+      (fullHeight * 0.82) / bounds.height,
+      1.1
     );
 
     const translate = [
       fullWidth / 2 - scale * midX,
-      fullHeight * 0.25 - scale * (bounds.y)
+      fullHeight * 0.28 - scale * (bounds.y)
     ];
 
     this.svg.transition().duration(750).call(
