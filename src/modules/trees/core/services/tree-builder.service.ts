@@ -72,7 +72,7 @@ export class TreeBuilderService {
     // QUERY 1: Recursive CTE (Descendants atau Ancestors)
     // -----------------------------------------------------------------------
     let edges: RawEdge[] = [];
-    if (direction === RenderDirection.DESCENDANTS || direction === RenderDirection.ALL) {
+    if (direction === RenderDirection.DESCENDANTS) {
       edges = await this.prisma.$queryRaw<RawEdge[]>`
         WITH RECURSIVE descendants AS (
           SELECT p.id AS person_id, NULL::uuid AS parent_id,
@@ -124,6 +124,61 @@ export class TreeBuilderService {
         GROUP BY person_id, child_id, relation_type, partnership_id
         ORDER BY generation ASC;
       `;
+    } else if (direction === RenderDirection.ALL) {
+      const [descEdges, ancEdges] = await Promise.all([
+        this.prisma.$queryRaw<RawEdge[]>`
+          WITH RECURSIVE descendants AS (
+            SELECT p.id AS person_id, NULL::uuid AS parent_id,
+                   NULL::text AS relation_type,
+                   NULL::uuid AS partnership_id,
+                   0 AS generation, ARRAY[p.id] AS path
+            FROM persons p
+            WHERE p.id = ${rootId}::uuid AND p.tree_id = ${treeId}::uuid
+
+            UNION ALL
+
+            SELECT pc.child_id AS person_id, pc.parent_id, pc.relation_type::text, pc.partnership_id,
+                   d.generation + 1, d.path || pc.child_id
+            FROM parent_child pc
+            JOIN descendants d ON pc.parent_id = d.person_id
+            WHERE d.generation < ${maxDepth}
+              AND pc.relation_type::text = ANY(${allowedRelationTypes})
+              AND NOT (pc.child_id = ANY(d.path))
+          )
+          SELECT person_id, parent_id, relation_type, partnership_id,
+                 MIN(generation)::int AS generation
+          FROM descendants
+          GROUP BY person_id, parent_id, relation_type, partnership_id
+          ORDER BY generation ASC;
+        `,
+        this.prisma.$queryRaw<RawEdge[]>`
+          WITH RECURSIVE ancestors AS (
+            SELECT p.id AS person_id, NULL::uuid AS child_id,
+                   NULL::text AS relation_type,
+                   NULL::uuid AS partnership_id,
+                   0 AS generation, ARRAY[p.id] AS path
+            FROM persons p
+            WHERE p.id = ${rootId}::uuid AND p.tree_id = ${treeId}::uuid
+
+            UNION ALL
+
+            SELECT pc.parent_id AS person_id, pc.child_id, pc.relation_type::text, pc.partnership_id,
+                   a.generation + 1, a.path || pc.parent_id
+            FROM parent_child pc
+            JOIN ancestors a ON pc.child_id = a.person_id
+            WHERE a.generation < ${maxDepth}
+              AND pc.relation_type::text = ANY(${allowedRelationTypes})
+              AND NOT (pc.parent_id = ANY(a.path))
+          )
+          SELECT person_id, child_id, relation_type, partnership_id,
+                 MIN(generation)::int AS generation
+          FROM ancestors
+          GROUP BY person_id, child_id, relation_type, partnership_id
+          ORDER BY generation ASC;
+        `,
+      ]);
+
+      edges = [...descEdges, ...ancEdges];
     }
 
     // Kumpulkan person IDs yang terlibat
@@ -258,7 +313,7 @@ export class TreeBuilderService {
     // QUERY 3 (Opsional): Stepchildren Query
     // -----------------------------------------------------------------------
     let stepChildrenEdges: Array<{ node_id: string; child_id: string; partnership_id: string; other_parent_id: string }> = [];
-    if (includeStepChildren && direction === RenderDirection.DESCENDANTS && initialPersonIds.length > 0) {
+    if (includeStepChildren && (direction === RenderDirection.DESCENDANTS || direction === RenderDirection.ALL) && initialPersonIds.length > 0) {
       stepChildrenEdges = await this.prisma.$queryRaw<any[]>`
         SELECT u.id AS partnership_id,
                CASE WHEN u.person_a_id = any_parent.parent_id THEN u.person_b_id ELSE u.person_a_id END AS other_parent_id,
@@ -298,7 +353,7 @@ export class TreeBuilderService {
 
     const hasMoreSet = new Set<string>();
     if (boundaryNodeIds.length > 0) {
-      if (direction === RenderDirection.DESCENDANTS || direction === RenderDirection.ALL) {
+      if (direction === RenderDirection.DESCENDANTS) {
         const nextChildren = await this.prisma.$queryRaw<Array<{ parent_id: string }>>`
           SELECT DISTINCT parent_id
           FROM parent_child
@@ -314,6 +369,23 @@ export class TreeBuilderService {
             AND relation_type::text = ANY(${allowedRelationTypes});
         `;
         for (const r of nextParents) hasMoreSet.add(r.child_id);
+      } else if (direction === RenderDirection.ALL) {
+        const [nextChildren, nextParents] = await Promise.all([
+          this.prisma.$queryRaw<Array<{ parent_id: string }>>`
+            SELECT DISTINCT parent_id
+            FROM parent_child
+            WHERE parent_id = ANY(${boundaryNodeIds}::uuid[])
+              AND relation_type::text = ANY(${allowedRelationTypes});
+          `,
+          this.prisma.$queryRaw<Array<{ child_id: string }>>`
+            SELECT DISTINCT child_id
+            FROM parent_child
+            WHERE child_id = ANY(${boundaryNodeIds}::uuid[])
+              AND relation_type::text = ANY(${allowedRelationTypes});
+          `,
+        ]);
+        for (const r of nextChildren) hasMoreSet.add(r.parent_id);
+        for (const r of nextParents) hasMoreSet.add(r.child_id);
       }
     }
 
@@ -324,6 +396,8 @@ export class TreeBuilderService {
       return this.buildGraphFormat(
         treeId,
         rootId,
+        direction,
+        maxDepth,
         edges,
         personMap,
         rawPartnerships,
@@ -372,6 +446,33 @@ export class TreeBuilderService {
             unionId: e.partnership_id,
             generation: e.generation,
             isDerived: false,
+            isAncestor: true,
+          });
+        }
+      } else if (direction === RenderDirection.ALL) {
+        // Pada ALL, sertakan KEDUA arah:
+        // 1. Keturunan (ke bawah): parent_id -> person_id (anak)
+        if (e.parent_id) {
+          if (!childrenMap.has(e.parent_id)) childrenMap.set(e.parent_id, []);
+          childrenMap.get(e.parent_id)!.push({
+            childId: e.person_id,
+            relationType: e.relation_type || 'biological',
+            unionId: e.partnership_id,
+            generation: e.generation,
+            isDerived: false,
+            isAncestor: false,
+          });
+        }
+        // 2. Leluhur (ke atas): child_id -> person_id (orang tua / leluhur)
+        if (e.child_id) {
+          if (!childrenMap.has(e.child_id)) childrenMap.set(e.child_id, []);
+          childrenMap.get(e.child_id)!.push({
+            childId: e.person_id,
+            relationType: e.relation_type || 'ancestor',
+            unionId: e.partnership_id,
+            generation: -e.generation,
+            isDerived: false,
+            isAncestor: true,
           });
         }
       } else {
@@ -383,6 +484,7 @@ export class TreeBuilderService {
             unionId: e.partnership_id,
             generation: e.generation,
             isDerived: false,
+            isAncestor: false,
           });
         }
       }
@@ -491,6 +593,9 @@ export class TreeBuilderService {
       // 2. birth_date (null di akhir)
       // 3. nama
       childEdgeList.sort((a, b) => {
+        if (a.isAncestor !== b.isAncestor) {
+          return a.isAncestor ? -1 : 1;
+        }
         const uA = unions.find((un) => un.partnershipId === a.unionId);
         const uB = unions.find((un) => un.partnershipId === b.unionId);
         const orderA = uA ? uA.order : 999;
@@ -513,9 +618,13 @@ export class TreeBuilderService {
       });
 
       for (const ce of childEdgeList) {
+        const nextGen = ce.generation !== undefined
+          ? ce.generation
+          : (ce.isAncestor ? currentGen - 1 : currentGen + 1);
+
         const childNode = traverse(
           ce.childId,
-          currentGen + 1,
+          nextGen,
           ce.relationType,
           ce.unionId,
           ce.otherParentId || null,
@@ -548,6 +657,8 @@ export class TreeBuilderService {
   private buildGraphFormat(
     treeId: string,
     rootId: string,
+    direction: RenderDirection,
+    maxDepth: number,
     edges: RawEdge[],
     personMap: Map<string, any>,
     partnerships: any[],
@@ -562,7 +673,12 @@ export class TreeBuilderService {
     const genMap = new Map<string, number>();
     genMap.set(rootId, 0);
     for (const e of edges) {
-      if (!genMap.has(e.person_id)) genMap.set(e.person_id, e.generation);
+      if (!genMap.has(e.person_id)) {
+        const genValue = (direction === RenderDirection.ALL && e.child_id && !e.parent_id)
+          ? -e.generation
+          : e.generation;
+        genMap.set(e.person_id, genValue);
+      }
     }
 
     // Bangun Nodes
@@ -637,6 +753,8 @@ export class TreeBuilderService {
       meta: {
         treeId,
         rootId,
+        direction,
+        depth: maxDepth,
         nodeCount: nodes.length,
         linkCount: links.length,
         generatedAt: new Date().toISOString(),

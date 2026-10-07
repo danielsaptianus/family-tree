@@ -210,7 +210,12 @@ function updateStats(meta) {
   if (!meta) return;
   elements.statNodes.textContent = meta.nodeCount ?? meta.totalNodes ?? '-';
   elements.statDepth.textContent = meta.depth ?? meta.maxDepth ?? 'Semua';
-  elements.statDirection.textContent = meta.direction === 'ancestors' ? 'Leluhur (Ke Atas)' : 'Keturunan (Ke Bawah)';
+  elements.statDirection.textContent =
+    meta.direction === 'ancestors'
+      ? 'Leluhur (Ke Atas)'
+      : meta.direction === 'all'
+      ? 'Semua (Leluhur & Keturunan)'
+      : 'Keturunan (Ke Bawah)';
 }
 
 /**
